@@ -39,6 +39,9 @@
 extern "C" {
 #endif
 
+// Internal Marcos
+//#define NON_AVX512_SUPPORT
+
 
 #define INCOMPLETE_SB_FIX                 1 // Handle the incomplete SBs properly based on the standard and consider all allowed blocks
 #define CDEF_AVX_OPT                      1
