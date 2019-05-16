@@ -19,6 +19,7 @@ include_directories(${PROJECT_SOURCE_DIR}/test/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSSE3/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSE4_1/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX2/
+    ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX512/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Encoder/Codec
     ${PROJECT_SOURCE_DIR}/Source/Lib/Decoder/Codec
     ${PROJECT_SOURCE_DIR}/Source/App/EncApp
@@ -48,6 +49,9 @@ file(GLOB all_files
     "*.cc"
     "ref/*.h"
     "ref/*.cc"
+    "../Source/Lib/Common/Codec/*.h"
+    "../Source/Lib/Common/Codec/*.c"
+    "../Source/Lib/Encoder/Codec/*.h"
     "../Source/Lib/Encoder/Codec/*.c"
     "../Source/Lib/Decoder/Codec/EbDecBitReader.c"
     "../Source/Lib/Decoder/Codec/EbDecBitstreamUnit.c")
@@ -78,6 +82,11 @@ else()
     set_target_properties(SvtAv1UnitTests
         PROPERTIES
         COMPILE_DEFINITIONS "GTEST_LINKED_AS_SHARED_LIBRARY=1")
+    # Link the Encoder App
+    target_link_libraries (SvtAv1UnitTests
+                           SvtAv1Enc
+                           SvtAv1Dec
+                           gtest_all)
 endif()
 
 install(TARGETS SvtAv1UnitTests RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

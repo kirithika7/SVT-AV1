@@ -208,7 +208,7 @@ extern "C" {
         BWD = 4,
         ALT2 = 5,
         ALT = 6
-    } REF_FRAME_MINUS1;
+    };
     typedef struct Av1RpsNode
     {
         uint8_t refresh_frame_mask;
