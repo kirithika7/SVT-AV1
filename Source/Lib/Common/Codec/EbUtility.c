@@ -5,11 +5,13 @@
 
 #include "EbDefinitions.h"
 #include "EbUtility.h"
+#include "EbTime.h"
 
 #ifdef _WIN32
 //#if  (WIN_ENCODER_TIMING || WIN_DECODER_TIMING)
 #include <time.h>
 #include <stdio.h>
+#include <windows.h>
 //#endif
 
 #elif defined(__linux__) || defined(__APPLE__)
@@ -548,90 +550,6 @@ const MiniGopStats* get_mini_gop_stats(const uint32_t mini_gop_index)
 {
     return &MiniGopStatsArray[mini_gop_index];
 }
-
-
-void EbStartTime(uint64_t *Startseconds, uint64_t *Startuseconds) {
-
-#if defined(__linux__) || defined(__APPLE__) //(LINUX_ENCODER_TIMING || LINUX_DECODER_TIMING)
-    struct timeval start;
-    gettimeofday(&start, NULL);
-    *Startseconds = start.tv_sec;
-    *Startuseconds = start.tv_usec;
-#elif _WIN32 //(WIN_ENCODER_TIMING || WIN_DECODER_TIMING)
-    *Startseconds = (uint64_t)clock();
-    (void)(*Startuseconds);
-#else
-    (void)(*Startuseconds);
-    (void)(*Startseconds);
-#endif
-
-}
-
-void EbFinishTime(uint64_t *Finishseconds, uint64_t *Finishuseconds) {
-
-#if defined(__linux__) || defined(__APPLE__) //(LINUX_ENCODER_TIMING || LINUX_DECODER_TIMING)
-    struct timeval finish;
-    gettimeofday(&finish, NULL);
-    *Finishseconds = finish.tv_sec;
-    *Finishuseconds = finish.tv_usec;
-#elif _WIN32 //(WIN_ENCODER_TIMING || WIN_DECODER_TIMING)
-    *Finishseconds = (uint64_t)clock();
-    (void)(*Finishuseconds);
-#else
-    (void)(*Finishuseconds);
-    (void)(*Finishseconds);
-#endif
-
-}
-void ComputeOverallElapsedTime(uint64_t Startseconds, uint64_t Startuseconds, uint64_t Finishseconds, uint64_t Finishuseconds, double *duration)
-{
-#if defined(__linux__) || defined(__APPLE__) //(LINUX_ENCODER_TIMING || LINUX_DECODER_TIMING)
-    long   mtime, seconds, useconds;
-    seconds = Finishseconds - Startseconds;
-    useconds = Finishuseconds - Startuseconds;
-    mtime = ((seconds) * 1000 + useconds / 1000.0) + 0.5;
-    *duration = (double)mtime / 1000;
-    //printf("\nElapsed time: %3.3ld seconds\n", mtime/1000);
-#elif _WIN32 //(WIN_ENCODER_TIMING || WIN_DECODER_TIMING)
-    //double  duration;
-    *duration = (double)(Finishseconds - Startseconds) / CLOCKS_PER_SEC;
-    //printf("\nElapsed time: %3.3f seconds\n", *duration);
-    (void)(Startuseconds);
-    (void)(Finishuseconds);
-#else
-    (void)(Startuseconds);
-    (void)(Startseconds);
-    (void)(Finishuseconds);
-    (void)(Finishseconds);
-
-#endif
-
-}
-void EbComputeOverallElapsedTimeMs(uint64_t Startseconds, uint64_t Startuseconds, uint64_t Finishseconds, uint64_t Finishuseconds, double *duration)
-{
-#if defined(__linux__) || defined(__APPLE__) //(LINUX_ENCODER_TIMING || LINUX_DECODER_TIMING)
-    long   mtime, seconds, useconds;
-    seconds = Finishseconds - Startseconds;
-    useconds = Finishuseconds - Startuseconds;
-    mtime = ((seconds) * 1000 + useconds / 1000.0) + 0.5;
-    *duration = (double)mtime;
-    //printf("\nElapsed time: %3.3ld seconds\n", mtime/1000);
-#elif _WIN32 //(WIN_ENCODER_TIMING || WIN_DECODER_TIMING)
-    //double  duration;
-    *duration = (double)(Finishseconds - Startseconds);
-    //printf("\nElapsed time: %3.3f seconds\n", *duration);
-    (void)(Startuseconds);
-    (void)(Finishuseconds);
-#else
-    (void)(Startuseconds);
-    (void)(Startseconds);
-    (void)(Finishuseconds);
-    (void)(Finishseconds);
-
-#endif
-
-}
-
 
 uint32_t ns_quarter_off_mult[9/*Up to 9 part*/][2/*x+y*/][4/*Up to 4 ns blocks per part*/] =
 {
@@ -1182,4 +1100,28 @@ const BlockGeom * get_blk_geom_mds(uint32_t bidx_mds)
 {
     return &blk_geom_mds[bidx_mds];
 }
+
+#if ALTREF_FILTERING_SUPPORT
+uint32_t get_mds_idx(uint32_t  orgx, uint32_t  orgy, uint32_t  size, uint32_t use_128x128)
+{
+    uint32_t  max_block_count = use_128x128 ? BLOCK_MAX_COUNT_SB_128 : BLOCK_MAX_COUNT_SB_64;
+
+    uint32_t blk_it, mds;
+
+    for (blk_it = 0; blk_it < max_block_count; blk_it++){
+
+        BlockGeom * cur_geom = &blk_geom_mds[blk_it];
+
+        if (cur_geom->sq_size == size && cur_geom->origin_x == orgx &&
+            cur_geom->origin_y == orgy && cur_geom->shape == PART_N){
+
+            mds = cur_geom->blkidx_mds;
+            break;
+
+        }
+
+    }
+    return mds;
+}
+#endif
 

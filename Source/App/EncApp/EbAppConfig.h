@@ -24,16 +24,6 @@ typedef __int64 off64_t;
 
 #endif
 
-#ifndef _RSIZE_T_DEFINED
-typedef size_t rsize_t;
-#define _RSIZE_T_DEFINED
-#endif  /* _RSIZE_T_DEFINED */
-
-#ifndef _ERRNO_T_DEFINED
-#define _ERRNO_T_DEFINED
-typedef int32_t errno_t;
-#endif  /* _ERRNO_T_DEFINED */
-
 /** The AppExitConditionType type is used to define the App main loop exit
 conditions.
 */
@@ -129,27 +119,6 @@ extern    uint32_t                   app_malloc_count;
         return; \
                 } \
     app_malloc_count++;
-
-/* string copy */
-extern errno_t strcpy_ss(char *dest, rsize_t dmax, const char *src);
-
-/* fitted string copy */
-extern errno_t strncpy_ss(char *dest, rsize_t dmax, const char *src, rsize_t slen);
-
-/* string length */
-extern rsize_t strnlen_ss(const char *s, rsize_t smax);
-
-#define EB_STRNCPY(dst, dst_size, src, count)	\
-    strncpy_ss(dst, dst_size, src, count)
-
-#define EB_STRCPY(dst, size, src) \
-    strcpy_ss(dst, size, src)
-
-#define EB_STRCMP(target,token) \
-    strcmp(target,token)
-
-#define EB_STRLEN(target, max_size) \
-    strnlen_ss(target, max_size)
 
 #define EB_APP_MEMORY() \
     printf("Total Number of Mallocs in App: %d\n", app_malloc_count); \
@@ -359,13 +328,23 @@ typedef struct EbConfig
     uint32_t                active_channel_count;
     uint32_t                logical_processors;
     int32_t                 target_socket;
-    EbBool                 stop_encoder;         // to signal CTRL+C Event, need to stop encoding.
+    EbBool                  stop_encoder;         // to signal CTRL+C Event, need to stop encoding.
 
     uint64_t                processed_frame_count;
     uint64_t                processed_byte_count;
 
     uint64_t                byte_count_since_ivf;
     uint64_t                ivf_count;
+
+    // --- start: ALTREF_FILTERING_SUPPORT
+    /****************************************
+     * ALT-REF related Parameters
+     ****************************************/
+    EbBool                  enable_altrefs;
+    uint8_t                 altref_strength;
+    uint8_t                 altref_nframes;
+    EbBool                  enable_overlays;
+    // --- end: ALTREF_FILTERING_SUPPORT
 
 } EbConfig;
 

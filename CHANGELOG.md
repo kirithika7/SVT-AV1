@@ -1,3 +1,8 @@
+## [upcoming]
+- Inital decoder implementation
+- Static library support  
+- Alt-ref pictures - temporal filtering
+
 ## [0.5.0] - 2019-05-17
 
 - 8 bit / 10 bit 4:2:0 up to 4k60p resolutions

@@ -20,7 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
-#include "EbSvtAv1Enc.h"
+#include "EbSvtAv1.h"
 #ifdef _WIN32
 #define inline __inline
 #elif __GNUC__
@@ -34,6 +34,15 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define ALT_REF_SUPPORT                   1// ALT_REF main flag
+
+#if ALT_REF_SUPPORT
+#define ALTREF_FILTERING_SUPPORT          1 //Temporal filter
+#define ALT_REF_OVERLAY                   1 // support for ALT_REF overlay frames.
+#endif
+
+#define PCS_ME_FIX                        1 // pcs flags shall not be set in seg based process
+
 
 #define MRP_SUPPORT                       1// MRP Main Flag
 
@@ -53,9 +62,12 @@ extern "C" {
 #define MEM_MAP_OPT                       1
 #endif
 
+
 #define SHUT_LOOKAHEAD                    0
 #define MINI_GOP_PCS                      0
+
 #define CHECK_MEM_REDUCTION               0
+
 #define CDEF_AVX_OPT                      1
 #define MOD_M0                            0 // Sub-SAD for @ HME and ME, 12 NFL, frequency see
 #define HARD_CODE_SC_SETTING              0
@@ -142,7 +154,7 @@ extern "C" {
 #define TRELLIS_INTRA                                   0
 #define TRELLIS_CHROMA                                  0
 #define ENHANCED_TRELLIS                                0   // TBD
-#endif
+#endif 
 
 #define CHROMA_DC_ONLY                                  0
 #define SEARCH_UV_MODE                                  1
@@ -248,11 +260,10 @@ extern "C" {
 #define MAX_FRAMES_TO_REF_I                             64
 #endif
 #define NSQ_TAB_SIZE                                    6
-
 #define AOM_INTERP_EXTEND 4
 #define MRP_DISABLE_ADDED_CAND_M1                        0
 
-#define EIGTH_PEL_MV                                    1
+#define EIGTH_PEL_MV                                    0
 
 struct Buf2D 
 {
@@ -1170,10 +1181,10 @@ typedef enum ATTRIBUTE_PACKED
 #define TXFM_PARTITION_CONTEXTS ((TX_SIZES - TX_8X8) * 6 - 3)
 typedef uint8_t TXFM_CONTEXT;
 
+// frame types
 #define NONE_FRAME -1
 #define INTRA_FRAME 0
 #define LAST_FRAME 1
-
 #define LAST2_FRAME 2
 #define LAST3_FRAME 3
 #define GOLDEN_FRAME 4
@@ -2673,106 +2684,14 @@ printf("Total Library Memory: %.2lf KB\n\n",*total_lib_memory/(double)1024);
 printf("Total Number of Mallocs in App: %d\n", app_malloc_count); \
 printf("Total App Memory: %.2lf KB\n\n",*total_app_memory/(double)1024);
 
-#ifndef EOK
-#define EOK             ( 0 )
-#endif
-
-#ifndef ESZEROL
-#define ESZEROL         ( 401 )       /* length is zero              */
-#endif
-
-#ifndef ESLEMIN
-#define ESLEMIN         ( 402 )       /* length is below min         */
-#endif
-
-#ifndef ESLEMAX
-#define ESLEMAX         ( 403 )       /* length exceeds max          */
-#endif
-
-#ifndef ESNULLP
-#define ESNULLP         ( 400 )       /* null ptr                    */
-#endif
-
-#ifndef ESOVRLP
-#define ESOVRLP         ( 404 )       /* overlap undefined           */
-#endif
-
-#ifndef ESEMPTY
-#define ESEMPTY         ( 405 )       /* empty string                */
-#endif
-
-#ifndef ESNOSPC
-#define ESNOSPC         ( 406 )       /* not enough space for s2     */
-#endif
-
-#ifndef ESUNTERM
-#define ESUNTERM        ( 407 )       /* unterminated string         */
-#endif
-
-#ifndef ESNODIFF
-#define ESNODIFF        ( 408 )       /* no difference               */
-#endif
-
-#ifndef ESNOTFND
-#define ESNOTFND        ( 409 )       /* not found                   */
-#endif
-
 #define RSIZE_MAX_MEM      ( 256UL << 20 )     /* 256MB */
 
-#define RCNEGATE(x)  (x)
-#define RSIZE_MAX_STR      ( 4UL << 10 )      /* 4KB */
-#define sl_default_handler ignore_handler_s
 #define EXPORT_SYMBOL(sym)
-
-#ifndef sldebug_printf
-#define sldebug_printf(...)
-#endif
-
-#ifndef _RSIZE_T_DEFINED
-typedef size_t rsize_t;
-#define _RSIZE_T_DEFINED
-#endif  /* _RSIZE_T_DEFINED */
 
 #ifndef _ERRNO_T_DEFINED
 #define _ERRNO_T_DEFINED
 typedef int32_t errno_t;
 #endif  /* _ERRNO_T_DEFINED */
-
-typedef void(*constraint_handler_t) (const char * /* msg */,
-    void *       /* ptr */,
-    errno_t      /* error */);
-extern void ignore_handler_s(const char *msg, void *ptr, errno_t error);
-
-/*
-* Function used by the libraries to invoke the registered
-* runtime-constraint handler. Always needed.
-*/
-extern void invoke_safe_str_constraint_handler(
-    const char *msg,
-    void *ptr,
-    errno_t error);
-
-static inline void handle_error(char *orig_dest, rsize_t orig_dmax,
-    char *err_msg, errno_t err_code)
-{
-    (void)orig_dmax;
-    *orig_dest = '\0';
-
-    invoke_safe_str_constraint_handler(err_msg, NULL, err_code);
-    return;
-}
-
-/* string copy */
-extern errno_t
-    strcpy_ss(char *dest, rsize_t dmax, const char *src);
-
-/* fitted string copy */
-extern errno_t
-    strncpy_ss(char *dest, rsize_t dmax, const char *src, rsize_t slen);
-
-/* string length */
-extern rsize_t
-    strnlen_ss(const char *s, rsize_t smax);
 
 extern void 
     eb_memcpy(void  *dst_ptr, void  *src_ptr, size_t size);
@@ -2782,18 +2701,6 @@ extern void
 
 #define EB_MEMSET(dst, val, count) \
 memset(dst, val, count)
-
-#define EB_STRNCPY(dst, src, count) \
-strncpy_ss(dst, dst_size, src, count)
-
-#define EB_STRCPY(dst, size, src) \
-strcpy_ss(dst, size, src)
-
-#define EB_STRCMP(target,token) \
-strcmp(target,token)
-
-#define EB_STRLEN(target, max_size) \
-strnlen_ss(target, max_size)
 
 //#ifdef __cplusplus
 //}
@@ -2835,6 +2742,8 @@ void(*ErrorHandler)(
 //***Encoding Parameters***
 #define MAX_PICTURE_WIDTH_SIZE                      4672u
 #define MAX_PICTURE_HEIGHT_SIZE                     2560u
+#define MAX_PICTURE_WIDTH_SIZE_CH                   2336u
+#define MAX_PICTURE_HEIGHT_SIZE_CH                  1280u
 #define INTERNAL_BIT_DEPTH                          8 // to be modified
 #define MAX_SAMPLE_VALUE                            ((1 << INTERNAL_BIT_DEPTH) - 1)
 #define MAX_SAMPLE_VALUE_10BIT                      0x3FF

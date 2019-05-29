@@ -2,53 +2,6 @@
 * Copyright(c) 2019 Intel Corporation
 * SPDX - License - Identifier: BSD - 2 - Clause - Patent
 */
-
-/*------------------------------------------------------------------
-* strncpy_s.c / strcpy_s.c / strnlen_s.c
-*
-* October 2008, Bo Berry
-*
-* Copyright � 2008-2011 by Cisco Systems, Inc
-* All rights reserved.
-
-* safe_str_constraint.c
-*
-* October 2008, Bo Berry
-* 2012, Jonathan Toppins <jtoppins@users.sourceforge.net>
-*
-* Copyright � 2008, 2009, 2012 Cisco Systems
-* All rights reserved.
-
-* ignore_handler_s.c
-*
-* 2012, Jonathan Toppins <jtoppins@users.sourceforge.net>
-*
-* Copyright � 2012 Cisco Systems
-* All rights reserved.
-*
-* Permission is hereby granted, free of charge, to any person
-* obtaining a copy of this software and associated documentation
-* files (the "Software"), to deal in the Software without
-* restriction, including without limitation the rights to use,
-* copy, modify, merge, publish, distribute, sublicense, and/or
-* sell copies of the Software, and to permit persons to whom the
-* Software is furnished to do so, subject to the following
-* conditions:
-*
-* The above copyright notice and this permission notice shall be
-* included in all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-* OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-* NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-* HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-* WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-* OTHER DEALINGS IN THE SOFTWARE.
-*------------------------------------------------------------------
-*/
-
 // SUMMARY
 //   Contains the API component functions
 
@@ -64,6 +17,7 @@
 #include "EbSvtAv1Enc.h"
 #include "EbThreads.h"
 #include "EbUtility.h"
+#include "EbString.h"
 #include "EbEncHandle.h"
 #include "EbSystemResourceManager.h"
 #include "EbPictureControlSet.h"
@@ -273,8 +227,8 @@ EbErrorType InitThreadManagmentParams() {
 #elif defined(__linux__)
     const char* PROCESSORID = "processor";
     const char* PHYSICALID = "physical id";
-    int processor_id_len = strnlen_ss(PROCESSORID, 128);
-    int physical_id_len = strnlen_ss(PHYSICALID, 128);
+    int processor_id_len = EB_STRLEN(PROCESSORID, 128);
+    int physical_id_len = EB_STRLEN(PHYSICALID, 128);
     if (processor_id_len < 0 || processor_id_len >= 128)
         return EB_ErrorInsufficientResources;
     if (physical_id_len < 0 || physical_id_len >= 128)
@@ -586,9 +540,21 @@ EbErrorType load_default_buffer_configuration_settings(
     sequence_control_set_ptr->rest_segment_column_count = MIN(rest_seg_w,6);
     sequence_control_set_ptr->rest_segment_row_count    = MIN(rest_seg_h,4);
 
+#if ALTREF_FILTERING_SUPPORT
+	sequence_control_set_ptr->tf_segment_column_count = meSegW;//1;//
+	sequence_control_set_ptr->tf_segment_row_count =  meSegH;//1;//
+#endif
     //#====================== Data Structures and Picture Buffers ======================
 #if BUG_FIX_LOOKAHEAD
     sequence_control_set_ptr->picture_control_set_pool_init_count       = input_pic + SCD_LAD + sequence_control_set_ptr->static_config.look_ahead_distance;
+#if ALT_REF_OVERLAY
+    if (sequence_control_set_ptr->static_config.enable_overlays)
+        sequence_control_set_ptr->picture_control_set_pool_init_count = MAX(sequence_control_set_ptr->picture_control_set_pool_init_count,
+            sequence_control_set_ptr->static_config.look_ahead_distance + // frames in the LAD
+            sequence_control_set_ptr->static_config.look_ahead_distance / (1 << sequence_control_set_ptr->static_config.hierarchical_levels) + 1 +  // number of overlayes in the LAD 
+            ((1 << sequence_control_set_ptr->static_config.hierarchical_levels) + SCD_LAD) * 2 +// minigop formation in PD + SCD_LAD *(normal pictures + potential pictures ) 
+            (1 << sequence_control_set_ptr->static_config.hierarchical_levels)); // minigop in PM
+#endif
 #else
     sequence_control_set_ptr->picture_control_set_pool_init_count       = input_pic + sequence_control_set_ptr->static_config.look_ahead_distance + SCD_LAD;
 #endif
@@ -600,6 +566,10 @@ EbErrorType load_default_buffer_configuration_settings(
                                                                           (uint32_t)((1 << sequence_control_set_ptr->static_config.hierarchical_levels) + 2)) +
                                                                           sequence_control_set_ptr->static_config.look_ahead_distance + SCD_LAD;
     sequence_control_set_ptr->output_recon_buffer_fifo_init_count       = sequence_control_set_ptr->reference_picture_buffer_init_count;
+#if ALT_REF_OVERLAY
+    sequence_control_set_ptr->overlay_input_picture_buffer_init_count   = sequence_control_set_ptr->static_config.enable_overlays ? 
+                                                                          (2 << sequence_control_set_ptr->static_config.hierarchical_levels) + SCD_LAD : 1;
+#endif
 
     //#====================== Inter process Fifos ======================
     sequence_control_set_ptr->resource_coordination_fifo_init_count       = 300;
@@ -621,7 +591,7 @@ EbErrorType load_default_buffer_configuration_settings(
 #if NEW_BUFF_CFG
     if (core_count > 1){
         sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->picture_analysis_process_init_count            = MAX(MIN(15, core_count >> 1), core_count / 6));
-        sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->motion_estimation_process_init_count           = MAX(MIN(20, core_count >> 1), core_count / 3));
+		sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->motion_estimation_process_init_count =  MAX(MIN(20, core_count >> 1), core_count / 3));//1);//
         sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->source_based_operations_process_init_count     = MAX(MIN(3, core_count >> 1), core_count / 12));
         sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->mode_decision_configuration_process_init_count = MAX(MIN(3, core_count >> 1), core_count / 12));
         sequence_control_set_ptr->total_process_init_count += (sequence_control_set_ptr->enc_dec_process_init_count                     = MAX(MIN(40, core_count >> 1), core_count));
@@ -804,6 +774,11 @@ static EbErrorType eb_enc_handle_ctor(
     enc_handle_ptr->reference_picture_pool_ptr_array                      = (EbSystemResource**)EB_NULL;
     enc_handle_ptr->pa_reference_picture_pool_ptr_array                   = (EbSystemResource**)EB_NULL;
 
+#if ALT_REF_OVERLAY
+    // Overlay input picture
+    enc_handle_ptr->overlay_input_picture_pool_ptr_array = (EbSystemResource**)EB_NULL;
+    enc_handle_ptr->overlay_input_picture_pool_producer_fifo_ptr_dbl_array = (EbFifo***)EB_NULL;
+#endif
     // Picture Buffer Producer Fifos
     enc_handle_ptr->reference_picture_pool_producer_fifo_ptr_dbl_array    = (EbFifo***)EB_NULL;
     enc_handle_ptr->pa_reference_picture_pool_producer_fifo_ptr_dbl_array = (EbFifo***)EB_NULL;
@@ -1162,6 +1137,10 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
     EB_MALLOC(EbSystemResource**, enc_handle_ptr->reference_picture_pool_ptr_array, sizeof(EbSystemResource*) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
     EB_MALLOC(EbSystemResource**, enc_handle_ptr->pa_reference_picture_pool_ptr_array, sizeof(EbSystemResource*) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
 
+#if ALT_REF_OVERLAY
+    EB_MALLOC(EbSystemResource**, enc_handle_ptr->overlay_input_picture_pool_ptr_array, sizeof(EbSystemResource*) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
+    EB_MALLOC(EbFifo***, enc_handle_ptr->overlay_input_picture_pool_producer_fifo_ptr_dbl_array, sizeof(EbFifo**) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
+#endif
     // Allocate Producer Fifo Arrays
     EB_MALLOC(EbFifo***, enc_handle_ptr->reference_picture_pool_producer_fifo_ptr_dbl_array, sizeof(EbFifo**) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
     EB_MALLOC(EbFifo***, enc_handle_ptr->pa_reference_picture_pool_producer_fifo_ptr_dbl_array, sizeof(EbFifo**) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
@@ -1280,6 +1259,29 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
         // Set the SequenceControlSet Picture Pool Fifo Ptrs
         enc_handle_ptr->sequence_control_set_instance_array[instance_index]->encode_context_ptr->reference_picture_pool_fifo_ptr = (enc_handle_ptr->reference_picture_pool_producer_fifo_ptr_dbl_array[instance_index])[0];
         enc_handle_ptr->sequence_control_set_instance_array[instance_index]->encode_context_ptr->pa_reference_picture_pool_fifo_ptr = (enc_handle_ptr->pa_reference_picture_pool_producer_fifo_ptr_dbl_array[instance_index])[0];
+
+#if ALT_REF_OVERLAY
+        if (enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->static_config.enable_overlays) {
+            // Overlay Input Picture Buffers
+            return_error = eb_system_resource_ctor(
+                &enc_handle_ptr->overlay_input_picture_pool_ptr_array[instance_index],
+                enc_handle_ptr->sequence_control_set_instance_array[instance_index]->sequence_control_set_ptr->overlay_input_picture_buffer_init_count,
+                1,
+                0,
+                &enc_handle_ptr->overlay_input_picture_pool_producer_fifo_ptr_dbl_array[instance_index],
+                (EbFifo ***)EB_NULL,
+                EB_FALSE,
+                EbInputBufferHeaderCtor,
+                enc_handle_ptr->sequence_control_set_instance_array[instance_index]->sequence_control_set_ptr);
+
+            if (return_error == EB_ErrorInsufficientResources) {
+                return EB_ErrorInsufficientResources;
+            }
+
+            // Set the SequenceControlSet Overlay input Picture Pool Fifo Ptrs
+            enc_handle_ptr->sequence_control_set_instance_array[instance_index]->encode_context_ptr->overlay_input_picture_pool_fifo_ptr = (enc_handle_ptr->overlay_input_picture_pool_producer_fifo_ptr_dbl_array[instance_index])[0];
+        }
+#endif
     }
 
     /************************************
@@ -1301,6 +1303,7 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
     if (return_error == EB_ErrorInsufficientResources) {
         return EB_ErrorInsufficientResources;
     }
+
     // EbBufferHeaderType Output Stream
     EB_MALLOC(EbSystemResource**, enc_handle_ptr->output_stream_buffer_resource_ptr_array, sizeof(EbSystemResource*) * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
     EB_MALLOC(EbFifo***, enc_handle_ptr->output_stream_buffer_producer_fifo_ptr_dbl_array, sizeof(EbFifo**)          * enc_handle_ptr->encode_instance_total_count, EB_N_PTR);
@@ -2317,6 +2320,13 @@ void SetParamBasedOnInput(SequenceControlSet *sequence_control_set_ptr)
     sequence_control_set_ptr->static_config.super_block_size = (sequence_control_set_ptr->static_config.rate_control_mode > 1) ? 64 : sequence_control_set_ptr->static_config.super_block_size;
    // sequence_control_set_ptr->static_config.hierarchical_levels = (sequence_control_set_ptr->static_config.rate_control_mode > 1) ? 3 : sequence_control_set_ptr->static_config.hierarchical_levels;
 #endif
+#if ALT_REF_OVERLAY
+    sequence_control_set_ptr->static_config.enable_overlays = sequence_control_set_ptr->static_config.enable_altrefs == EB_FALSE ||
+        (sequence_control_set_ptr->static_config.rate_control_mode > 0) ||
+        (sequence_control_set_ptr->static_config.enc_mode > ENC_M0) ||
+        sequence_control_set_ptr->static_config.encoder_bit_depth != EB_8BIT ?
+        0 : sequence_control_set_ptr->static_config.enable_overlays;
+#endif
 
 #if MEMORY_FOOTPRINT_OPT_ME_MV
     //0: MRP Mode 0 (4,3)
@@ -2535,6 +2545,15 @@ void CopyApiFromApp(
 #endif
     else
         sequence_control_set_ptr->static_config.look_ahead_distance = cap_look_ahead_distance(&sequence_control_set_ptr->static_config);
+
+#if ALTREF_FILTERING_SUPPORT
+    sequence_control_set_ptr->static_config.enable_altrefs = pComponentParameterStructure->enable_altrefs;
+    sequence_control_set_ptr->static_config.altref_strength = pComponentParameterStructure->altref_strength;
+    sequence_control_set_ptr->static_config.altref_nframes = pComponentParameterStructure->altref_nframes;
+#endif
+#if ALT_REF_OVERLAY
+    sequence_control_set_ptr->static_config.enable_overlays = pComponentParameterStructure->enable_overlays;
+#endif
 
     return;
 }
@@ -3001,6 +3020,12 @@ EbErrorType eb_svt_enc_init_parameter(
     // Debug info
     config_ptr->recon_enabled = 0;
 
+    // Alt-Ref default values
+	config_ptr->enable_altrefs = EB_TRUE;
+    config_ptr->altref_nframes = 7;
+    config_ptr->altref_strength = 5;
+    config_ptr->enable_overlays = EB_TRUE;
+
     return return_error;
 }
 //#define DEBUG_BUFFERS
@@ -3447,7 +3472,10 @@ EB_API EbErrorType eb_svt_get_packet(
     if (ebWrapperPtr) {
 
         packet = (EbBufferHeaderType*)ebWrapperPtr->object_ptr;
-
+#if ALT_REF_OVERLAY
+        if ( packet->flags & 0xfffffff0 )
+            return_error = EB_ErrorMax;
+#else
         if (packet->flags != EB_BUFFERFLAG_EOS &&
             packet->flags != EB_BUFFERFLAG_SHOW_EXT &&
             packet->flags != EB_BUFFERFLAG_HAS_TD &&
@@ -3458,7 +3486,7 @@ EB_API EbErrorType eb_svt_get_packet(
             packet->flags != 0) {
             return_error = EB_ErrorMax;
         }
-
+#endif
         // return the output stream buffer
         *p_buffer = packet;
 
@@ -3478,7 +3506,7 @@ __attribute__((visibility("default")))
 EB_API void eb_svt_release_out_buffer(
     EbBufferHeaderType  **p_buffer)
 {
-    if (p_buffer&&(*p_buffer)->wrapper_ptr)
+    if (p_buffer && (*p_buffer)->wrapper_ptr)
         // Release out put buffer back into the pool
         eb_release_object((EbObjectWrapper  *)(*p_buffer)->wrapper_ptr);
     return;
@@ -3719,283 +3747,3 @@ EbErrorType EbOutputReconBufferHeaderCtor(
 
     return EB_ErrorNone;
 }
-
-/* SAFE STRING LIBRARY */
-
-static constraint_handler_t str_handler = NULL;
-
-void
-invoke_safe_str_constraint_handler(const char *msg,
-    void *ptr,
-    errno_t error)
-{
-    if (NULL != str_handler) {
-        str_handler(msg, ptr, error);
-    }
-    else {
-        sl_default_handler(msg, ptr, error);
-    }
-}
-
-void ignore_handler_s(const char *msg, void *ptr, errno_t error)
-{
-    (void)msg;
-    (void)ptr;
-    (void)error;
-    sldebug_printf("IGNORE CONSTRAINT HANDLER: (%u) %s\n", error,
-        (msg) ? msg : "Null message");
-    return;
-}
-EXPORT_SYMBOL(ignore_handler_s)
-
-errno_t
-strncpy_ss(char *dest, rsize_t dmax, const char *src, rsize_t slen)
-{
-    rsize_t orig_dmax;
-    char *orig_dest;
-    const char *overlap_bumper;
-
-    if (dest == NULL) {
-        invoke_safe_str_constraint_handler((char*) "strncpy_ss: dest is null",
-            NULL, ESNULLP);
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (dmax == 0) {
-        invoke_safe_str_constraint_handler((char*) "strncpy_ss: dmax is 0",
-            NULL, ESZEROL);
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        invoke_safe_str_constraint_handler((char*) "strncpy_ss: dmax exceeds max",
-            NULL, ESLEMAX);
-        return RCNEGATE(ESLEMAX);
-    }
-
-    /* hold base in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
-
-    if (src == NULL) {
-        handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: "
-            "src is null",
-            ESNULLP);
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (slen == 0) {
-        handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: "
-            "slen is zero",
-            ESZEROL);
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (slen > RSIZE_MAX_STR) {
-        handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: "
-            "slen exceeds max",
-            ESLEMAX);
-        return RCNEGATE(ESLEMAX);
-    }
-
-
-    if (dest < src) {
-        overlap_bumper = src;
-
-        while (dmax > 0) {
-            if (dest == overlap_bumper) {
-                handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: "
-                    "overlapping objects",
-                    ESOVRLP);
-                return RCNEGATE(ESOVRLP);
-            }
-
-            if (slen == 0) {
-                /*
-                * Copying truncated to slen chars.  Note that the TR says to
-                * copy slen chars plus the null char.  We null the slack.
-                */
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
-
-    }
-    else {
-        overlap_bumper = dest;
-
-        while (dmax > 0) {
-            if (src == overlap_bumper) {
-                handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: "
-                    "overlapping objects",
-                    ESOVRLP);
-                return RCNEGATE(ESOVRLP);
-            }
-
-            if (slen == 0) {
-                /*
-                * Copying truncated to slen chars.  Note that the TR says to
-                * copy slen chars plus the null char.  We null the slack.
-                */
-                *dest = '\0';
-                return RCNEGATE(EOK);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            slen--;
-            dest++;
-            src++;
-        }
-    }
-
-    /*
-    * the entire src was not copied, so zero the string
-    */
-    handle_error(orig_dest, orig_dmax, (char*) "strncpy_ss: not enough "
-        "space for src",
-        ESNOSPC);
-    return RCNEGATE(ESNOSPC);
-}
-EXPORT_SYMBOL(strncpy_ss)
-
-errno_t
-strcpy_ss(char *dest, rsize_t dmax, const char *src)
-{
-    rsize_t orig_dmax;
-    char *orig_dest;
-    const char *overlap_bumper;
-
-    if (dest == NULL) {
-        invoke_safe_str_constraint_handler((char*) "strcpy_ss: dest is null",
-            NULL, ESNULLP);
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (dmax == 0) {
-        invoke_safe_str_constraint_handler((char*) "strcpy_ss: dmax is 0",
-            NULL, ESZEROL);
-        return RCNEGATE(ESZEROL);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        invoke_safe_str_constraint_handler((char*) "strcpy_ss: dmax exceeds max",
-            NULL, ESLEMAX);
-        return RCNEGATE(ESLEMAX);
-    }
-
-    if (src == NULL) {
-        *dest = '\0';
-        invoke_safe_str_constraint_handler((char*) "strcpy_ss: src is null",
-            NULL, ESNULLP);
-        return RCNEGATE(ESNULLP);
-    }
-
-    if (dest == src) {
-        return RCNEGATE(EOK);
-    }
-
-    /* hold base of dest in case src was not copied */
-    orig_dmax = dmax;
-    orig_dest = dest;
-
-    if (dest < src) {
-        overlap_bumper = src;
-
-        while (dmax > 0) {
-            if (dest == overlap_bumper) {
-                handle_error(orig_dest, orig_dmax, (char*) "strcpy_ss: "
-                    "overlapping objects",
-                    ESOVRLP);
-                return RCNEGATE(ESOVRLP);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            dest++;
-            src++;
-        }
-
-    }
-    else {
-        overlap_bumper = dest;
-
-        while (dmax > 0) {
-            if (src == overlap_bumper) {
-                handle_error(orig_dest, orig_dmax, (char*) "strcpy_ss: "
-                    "overlapping objects",
-                    ESOVRLP);
-                return RCNEGATE(ESOVRLP);
-            }
-
-            *dest = *src;
-            if (*dest == '\0') {
-                return RCNEGATE(EOK);
-            }
-
-            dmax--;
-            dest++;
-            src++;
-        }
-    }
-
-    /*
-    * the entire src must have been copied, if not reset dest
-    * to null the string.
-    */
-    handle_error(orig_dest, orig_dmax, (char*) "strcpy_ss: not "
-        "enough space for src",
-        ESNOSPC);
-    return RCNEGATE(ESNOSPC);
-}
-EXPORT_SYMBOL(strcpy_ss)
-
-rsize_t
-strnlen_ss(const char *dest, rsize_t dmax)
-{
-    rsize_t count;
-
-    if (dest == NULL) {
-        return RCNEGATE(0);
-    }
-
-    if (dmax == 0) {
-        invoke_safe_str_constraint_handler((char*) "strnlen_ss: dmax is 0",
-            NULL, ESZEROL);
-        return RCNEGATE(0);
-    }
-
-    if (dmax > RSIZE_MAX_STR) {
-        invoke_safe_str_constraint_handler((char*) "strnlen_ss: dmax exceeds max",
-            NULL, ESLEMAX);
-        return RCNEGATE(0);
-    }
-
-    count = 0;
-    while (*dest && dmax) {
-        count++;
-        dmax--;
-        dest++;
-    }
-
-    return RCNEGATE(count);
-}
-EXPORT_SYMBOL(strnlen_ss)
