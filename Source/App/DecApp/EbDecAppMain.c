@@ -3,13 +3,13 @@
 * SPDX - License - Identifier: BSD - 2 - Clause - Patent
 */
 
-
 /***************************************
  * Includes
  ***************************************/
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "EbSvtAv1Dec.h"
 #include "EbDecParamParser.h"
@@ -22,12 +22,12 @@
 
 int init_pic_buffer(EbSvtIOFormat *pic_buffer, CLInput *cli) {
     switch (cli->fmt) {
-    case EB_YUV420: 
+    case EB_YUV420:
         pic_buffer->cb_stride = cli->width / 2;
         pic_buffer->cr_stride = cli->width / 2;
         pic_buffer->y_stride = cli->width;
         break;
-    default: 
+    default:
         printf("Unsupported colour format. \n");
         return 0;
     }
@@ -46,7 +46,7 @@ int read_input_frame(CLInput *cli, uint8_t **buffer, size_t *bytes_read,
 {
     switch (cli->inFileType)
     {
-    case FILE_TYPE_IVF: 
+    case FILE_TYPE_IVF:
         return read_ivf_frame(cli->inFile, buffer, bytes_read, buffer_size, pts);
         break;
     default:
@@ -56,12 +56,12 @@ int read_input_frame(CLInput *cli, uint8_t **buffer, size_t *bytes_read,
 }
 
 void write_frame(EbBufferHeaderType *recon_buffer, CLInput *cli) {
-
     EbSvtIOFormat* img = (EbSvtIOFormat*)recon_buffer->p_buffer;
 
     // Support only for 420 images
-    assert(cli->bit_depth == EB_EIGHT_BIT);
     assert(cli->fmt == EB_YUV420);
+
+    const int bytes_per_sample = (cli->bit_depth == EB_EIGHT_BIT) ? 1 : 2;
 
     // Write luma plane
     unsigned char *buf = img->luma;
@@ -70,8 +70,8 @@ void write_frame(EbBufferHeaderType *recon_buffer, CLInput *cli) {
     int h = cli->height;
     int y = 0;
     for (y = 0; y < h; ++y) {
-        fwrite(buf, 1, w, cli->outFile);
-        buf += stride;
+        fwrite(buf, bytes_per_sample, w, cli->outFile);
+        buf += (stride* bytes_per_sample);
     }
 
     //Write chroma planes
@@ -80,22 +80,19 @@ void write_frame(EbBufferHeaderType *recon_buffer, CLInput *cli) {
     w /= 2;
     h /= 2;
     for (y = 0; y < h; ++y) {
-        fwrite(buf, 1, w, cli->outFile);
-        buf += stride;
+        fwrite(buf, bytes_per_sample, w, cli->outFile);
+        buf += (stride* bytes_per_sample);
     }
 
     buf = img->cr;
     stride = img->cr_stride;
     for (y = 0; y < h; ++y) {
-        fwrite(buf, 1, w, cli->outFile);
-        buf += stride;
+        fwrite(buf, bytes_per_sample, w, cli->outFile);
+        buf += (stride* bytes_per_sample);
     }
 
     fflush(cli->outFile);
 }
-
-
-
 
 /***************************************
  * Decoder App Main
@@ -118,7 +115,6 @@ int32_t main(int32_t argc, char* argv[])
     uint64_t stop_after = 0;
     uint32_t in_frame = 0;
 
-    
     MD5Context md5_ctx;
     unsigned char md5_digest[16];
 
@@ -152,9 +148,8 @@ int32_t main(int32_t argc, char* argv[])
     return_error |= eb_dec_init_handle(&p_handle, p_app_data, config_ptr);
     if (return_error != EB_ErrorNone) goto fail;
 
-    if (read_command_line(argc, argv, config_ptr, &cli) == 0 && 
+    if (read_command_line(argc, argv, config_ptr, &cli) == 0 &&
         !eb_svt_dec_set_parameter(p_handle, config_ptr)) {
-
         return_error = eb_init_decoder(p_handle);
         if (return_error != EB_ErrorNone) {
             return_error |= eb_dec_deinit_handle(p_handle);
@@ -162,34 +157,36 @@ int32_t main(int32_t argc, char* argv[])
         }
 
         assert(config_ptr->max_color_format == EB_YUV420);
-        assert(config_ptr->max_bit_depth == EB_EIGHT_BIT);
+        assert(config_ptr->max_bit_depth < EB_TWELVE_BIT);
 
         int enable_md5 = cli.enable_md5;
 
         EbBufferHeaderType *recon_buffer = NULL;
         recon_buffer = (EbBufferHeaderType*)malloc(sizeof(EbBufferHeaderType));
         recon_buffer->p_buffer = (uint8_t *)malloc(sizeof(EbSvtIOFormat));
-        int size = sizeof(uint8_t) * cli.height * cli.width;
+
+        int size = (config_ptr->max_bit_depth == EB_EIGHT_BIT) ?
+                                sizeof(uint8_t) : sizeof(uint16_t);
+        size = size * cli.height * cli.width;
+
         ((EbSvtIOFormat *)recon_buffer->p_buffer)->luma = (uint8_t*)malloc(size);
         ((EbSvtIOFormat *)recon_buffer->p_buffer)->cb = (uint8_t*)malloc(size >> 2);
         ((EbSvtIOFormat *)recon_buffer->p_buffer)->cr = (uint8_t*)malloc(size >> 2);
         if (!init_pic_buffer((EbSvtIOFormat*)recon_buffer->p_buffer, &cli)) {
-
             printf("Decoding \n");
             EbAV1StreamInfo *stream_info = (EbAV1StreamInfo*)malloc(sizeof(EbAV1StreamInfo));
             EbAV1FrameInfo *frame_info = (EbAV1FrameInfo*)malloc(sizeof(EbAV1FrameInfo));
 
             if (config_ptr->skip_frames)
-                fprintf(stderr, "Skipping first %llu frames.\n", config_ptr->skip_frames);
+                fprintf(stderr, "Skipping first %" PRIu64 " frames.\n", config_ptr->skip_frames);
             uint64_t skip_frame = config_ptr->skip_frames;
             while (skip_frame) {
                 if (!read_input_frame(&cli, &buf, &bytes_in_buffer, &buffer_size, NULL)) break;
                 skip_frame--;
             }
             stop_after = config_ptr->frames_to_be_decoded;
-            if (enable_md5) {
+            if (enable_md5)
                 md5_init(&md5_ctx);
-            }
             // Input Loop Thread
             while (read_input_frame(&cli, &buf, &bytes_in_buffer, &buffer_size, NULL)) {
                 if (!stop_after || in_frame < stop_after) {
@@ -199,12 +196,10 @@ int32_t main(int32_t argc, char* argv[])
                     in_frame++;
 
                     if (eb_svt_dec_get_picture(p_handle, recon_buffer, stream_info, frame_info) != EB_DecNoOutputPicture) {
-                        if (enable_md5) {
+                        if (enable_md5)
                             write_md5(recon_buffer, &cli, &md5_ctx);
-                        }
-                        else {
+                        else
                             write_frame(recon_buffer, &cli);
-                        }
                     }
                 }
                 else break;
@@ -227,10 +222,8 @@ int32_t main(int32_t argc, char* argv[])
         free(recon_buffer);
         free(buf);
     }
-    else {
+    else
         printf("Error in configuration. \n");
-    }
-
     return_error |= eb_dec_deinit_handle(p_handle);
 
 fail:

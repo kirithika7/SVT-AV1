@@ -18,9 +18,9 @@
 #define EbDecBitstreamUnit_h
 
 #include "EbCabacContextModel.h"
-#include "EbBitstreamUnit.h" 
-//Added this EbBitstreamUnit.h because od_ec_window is defined in it, but 
-//we also defining it, so it leads to warning,  so i commented our defination & added EbBitstreamUnit.h file.  
+#include "EbBitstreamUnit.h"
+//Added this EbBitstreamUnit.h because od_ec_window is defined in it, but
+//we also defining it, so it leads to warning,  so i commented our defination & added EbBitstreamUnit.h file.
 
 #ifdef __cplusplus
 extern "C" {
@@ -44,7 +44,7 @@ extern "C" {
 //typedef uint32_t od_ec_window;
 
 /*The size in bits of od_ec_window.*/
-#define OD_EC_WINDOW_SIZE ((int)sizeof(od_ec_window) * CHAR_BIT)
+//#define OD_EC_WINDOW_SIZE ((int)sizeof(od_ec_window) * CHAR_BIT)
 
 /********************************************************************************************************************************/
 /********************************************************************************************************************************/
@@ -85,9 +85,8 @@ static INLINE void dec_update_cdf(AomCdfProb *cdf, int8_t val, int nsymbs) {
     tmp = (i == val) ? 0 : tmp;
     if (tmp < cdf[i]) {
       cdf[i] -= (AomCdfProb)((cdf[i] - tmp) >> rate);
-    } else {
+    } else
       cdf[i] += (AomCdfProb)((tmp - cdf[i]) >> rate);
-    }
   }
   cdf[nsymbs] += (cdf[nsymbs] < 32);
 }
@@ -100,7 +99,6 @@ static INLINE void dec_update_cdf(AomCdfProb *cdf, int8_t val, int nsymbs) {
 
 /*The entropy decoder context.*/
 typedef struct od_ec_dec {
-
     /*The start of the current input buffer.*/
     const unsigned char *buf;
 

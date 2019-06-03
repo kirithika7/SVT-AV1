@@ -29,6 +29,8 @@
  * Includes
  ***************************************/
 #include <string.h>
+#include <assert.h>
+
 #include "EbFileUtils.h"
 #include "EbMD5Utility.h"
 
@@ -148,16 +150,13 @@ void md5_final(unsigned char digest[16], MD5Context *ctx){
     memset(ctx, 0, sizeof(*ctx)); /* In case it's sensitive */
 }
 
-
-
-
 /*
  * The core of the MD5 algorithm, this alters an existing MD5 hash to
  * reflect the addition of 16 longwords of new data.  MD5Update blocks
  * the data and converts bytes into longwords for this routine.
  */
 void md5_transform(unsigned int buf[4],
-                   unsigned int const in[16]) 
+                   unsigned int const in[16])
 {
     register unsigned int a, b, c, d;
 
@@ -242,7 +241,7 @@ void md5_transform(unsigned int buf[4],
 
 void print_md5(unsigned char digest[16]) {
     int i;
-    
+
     printf("\n");
     for (i = 0; i < 16; ++i) printf("%02x", digest[i]);
 }
@@ -250,6 +249,10 @@ void print_md5(unsigned char digest[16]) {
 void write_md5(EbBufferHeaderType *recon_buffer, CLInput *cli, MD5Context *md5) {
     EbSvtIOFormat* img = (EbSvtIOFormat*)recon_buffer->p_buffer;
 
+    // Support only for 420 images
+    assert(cli->fmt == EB_YUV420);
+
+    const int bytes_per_sample = (cli->bit_depth == EB_EIGHT_BIT) ? 1 : 2;
     uint32_t y = 0;
     const uint8_t *buf = img->luma;
     uint32_t w = cli->width;
@@ -259,27 +262,26 @@ void write_md5(EbBufferHeaderType *recon_buffer, CLInput *cli, MD5Context *md5) 
 
     //luma MD5 generation
     for (y = 0; y < h; ++y) {
-        md5_update(md5, buf, w);
-        buf += stride;
+        md5_update(md5, buf, w * bytes_per_sample);
+        buf += (stride * bytes_per_sample);
     }
 
     w = w / 2;
     h = h / 2;
     stride = img->cb_stride;
-   
 
     //cb MD5 generation
     buf = img->cb;
     for (y = 0; y < h; ++y) {
-        md5_update(md5, buf, w);
-        buf += stride;
+        md5_update(md5, buf, w * bytes_per_sample);
+        buf += (stride * bytes_per_sample);
     }
 
     //cr MD5 generation
     buf = img->cr;
     stride = img->cr_stride;
     for (y = 0; y < h; ++y) {
-        md5_update(md5, buf, w);
-        buf += stride;
+        md5_update(md5, buf, w * bytes_per_sample);
+        buf += (stride * bytes_per_sample);
     }
 }
