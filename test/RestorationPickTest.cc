@@ -452,14 +452,9 @@ TEST(EbRestorationPick, DISABLED_compute_stats_speed) {
 
         printf("Average Nanoseconds per Function Call\n");
         printf("    av1_compute_stats_avx2(%d)   : %6.2f\n",
-               wiener_win,
-               1000000 * time_c / num_loop);
-        printf(
-            "    av1_compute_stats_avx512(%d) : %6.2f   (Comparison: "
-            "%5.2fx)\n",
-            wiener_win,
-            1000000 * time_o / num_loop,
-            time_c / time_o);
+            wiener_win, 1000000 * time_c / num_loop);
+        printf("    av1_compute_stats_avx512(%d) : %6.2f   (Comparison: "
+            "%5.2fx)\n", wiener_win, 1000000 * time_o / num_loop, time_c / time_o);
     }
 }
 
@@ -547,15 +542,9 @@ TEST(EbRestorationPick, DISABLED_compute_stats_highbd_speed) {
 
             printf("Average Nanoseconds per Function Call\n");
             printf("    av1_compute_stats_highbd_avx2(%d)   : %6.2f\n",
-                   wiener_win,
-                   1000000 * time_c / num_loop);
-            printf(
-                "    av1_compute_stats_highbd_avx512(%d) : %6.2f   "
-                "(Comparison: "
-                "%5.2fx)\n",
-                wiener_win,
-                1000000 * time_o / num_loop,
-                time_c / time_o);
+                wiener_win, 1000000 * time_c / num_loop);
+            printf("    av1_compute_stats_highbd_avx512(%d) : %6.2f   (Comparison: "
+                "%5.2fx)\n", wiener_win, 1000000 * time_o / num_loop, time_c / time_o);
         }
     }
 }
