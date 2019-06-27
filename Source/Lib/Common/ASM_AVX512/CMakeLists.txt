@@ -38,6 +38,6 @@ file(GLOB all_files
     "*.asm"
     "*.c")
 
-add_library(COMMON_ASM_AVX512
+add_library(COMMON_ASM_AVX512 OBJECT
     ${all_files}
 )
