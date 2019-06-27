@@ -2209,7 +2209,7 @@ extern    uint32_t                   lib_mutex_count;
 
 extern    uint32_t                   app_malloc_count;
 
-#define ALVALUE 32
+#define ALVALUE 64
 
 #define EB_ADD_APP_MEM(pointer, size, pointer_class, count, release, return_type) \
     do { \
