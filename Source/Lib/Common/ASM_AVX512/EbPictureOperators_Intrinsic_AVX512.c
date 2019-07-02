@@ -294,7 +294,7 @@ void full_distortion_kernel32_bits_avx512(
     s0 = _mm512_extracti64x4_epi64(sum1, 0);
     s1 = _mm512_extracti64x4_epi64(sum1, 1);
     s0 = _mm256_add_epi64(s0, s1);
-    
+
     temp1 = _mm256_extracti128_si256(s0, 0);
     temp2 = _mm256_extracti128_si256(s0, 1);
     temp1 = _mm_add_epi64(temp1, temp2);

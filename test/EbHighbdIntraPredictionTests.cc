@@ -147,7 +147,7 @@ TEST(HighbdIntraPredictionTest, aom_dc_top_predictor_kernels)
             }
         }
     }
-   
+
 }
 
 TEST(HighbdIntraPredictionTest, aom_dc_left_predictor_kernels)

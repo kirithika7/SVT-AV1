@@ -12,7 +12,7 @@ include_directories(${PROJECT_SOURCE_DIR}/Source/API/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSSE3/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSE4_1/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX2/
-	${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX512/
+    ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX512/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Encoder/Codec/)
 
 link_directories(${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSE2/
@@ -20,7 +20,7 @@ link_directories(${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSE2/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSSE3/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_SSE4_1/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX2/
-	${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX512/
+    ${PROJECT_SOURCE_DIR}/Source/Lib/Common/ASM_AVX512/
     ${PROJECT_SOURCE_DIR}/Source/Lib/Common/Codec/)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Bin/${CMAKE_BUILD_TYPE}/)
@@ -57,7 +57,7 @@ add_library(SvtAv1Enc
     $<TARGET_OBJECTS:COMMON_ASM_SSSE3>
     $<TARGET_OBJECTS:COMMON_ASM_SSE4_1>
     $<TARGET_OBJECTS:COMMON_ASM_AVX2>
-	$<TARGET_OBJECTS:COMMON_ASM_AVX512>)
+    $<TARGET_OBJECTS:COMMON_ASM_AVX512>)
 target_link_libraries(SvtAv1Enc ${PLATFORM_LIBS})
 install(TARGETS SvtAv1Enc DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 

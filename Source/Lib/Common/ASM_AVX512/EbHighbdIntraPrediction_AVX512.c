@@ -506,14 +506,14 @@ static INLINE __m128i dc_sum_64_64(const uint16_t *const src0,
     const __m512i s1 = _mm512_loadu_si512((const __m256i *)(src0 + 0x20));
     const __m512i s2 = _mm512_loadu_si512((const __m256i *)(src1 + 0x00));
     const __m512i s3 = _mm512_loadu_si512((const __m256i *)(src1 + 0x20));
-  
+
     const __m512i sum01 = _mm512_add_epi16(s0, s1);
     const __m512i sum23 = _mm512_add_epi16(s2, s3);
     const __m512i sum03 = _mm512_add_epi16(sum01, sum23);
 
     const __m256i sum03_1 = _mm512_extracti64x4_epi64(sum03, 0);
     const __m256i sum03_2 = _mm512_extracti64x4_epi64(sum03, 1);
-   
+
     const __m256i sum = _mm256_add_epi16(sum03_1, sum03_2);
     return dc_sum_larger(sum);
 }
