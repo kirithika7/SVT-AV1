@@ -1357,7 +1357,7 @@ static INLINE void compute_stats_win3_avx2(const int16_t *const d,
         j = i + 1;
         do {
             const int16_t *const dJ = d + j;
-            __m256i deltas[WIENER_WIN_3TAP - 1][WIENER_WIN_3TAP - 1] = { 0 };
+            __m256i deltas[WIENER_WIN_3TAP - 1][WIENER_WIN_3TAP - 1] = {{{0}},{{0}}};
             __m256i dIs[WIENER_WIN_3TAP - 1], dIe[WIENER_WIN_3TAP - 1];
             __m256i dJs[WIENER_WIN_3TAP - 1], dJe[WIENER_WIN_3TAP - 1];
 
@@ -1960,7 +1960,7 @@ static INLINE void compute_stats_win5_avx2(const int16_t *const d,
         j = i + 1;
         do {
             const int16_t *const dJ = d + j;
-            __m256i deltas[WIENER_WIN_CHROMA - 1][WIENER_WIN_CHROMA - 1] = { 0 };
+            __m256i deltas[WIENER_WIN_CHROMA - 1][WIENER_WIN_CHROMA - 1] = {{{0}},{{0}}};
             __m256i dIs[WIENER_WIN_CHROMA - 1], dIe[WIENER_WIN_CHROMA - 1];
             __m256i dJs[WIENER_WIN_CHROMA - 1], dJe[WIENER_WIN_CHROMA - 1];
 
@@ -2636,7 +2636,7 @@ static INLINE void compute_stats_win7_avx2(const int16_t *const d,
         j = i + 1;
         do {
             const int16_t *const dJ = d + j;
-            __m256i deltas[WIENER_WIN - 1][WIENER_WIN - 1] = { 0 };
+            __m256i deltas[WIENER_WIN - 1][WIENER_WIN - 1] = {{{0}},{{0}}};
             __m256i dIs[WIENER_WIN - 1], dIe[WIENER_WIN - 1];
             __m256i dJs[WIENER_WIN - 1], dJe[WIENER_WIN - 1];
 
@@ -2876,12 +2876,6 @@ void av1_compute_stats_highbd_avx2(int32_t wiener_win, const uint8_t *dgd8,
     EB_ALIGN(32) int16_t d[3 * RESTORATION_UNITSIZE_MAX * RESTORATION_UNITSIZE_MAX];
     EB_ALIGN(32) int16_t s[3 * RESTORATION_UNITSIZE_MAX * RESTORATION_UNITSIZE_MAX];
     int32_t i, j, k, l, x, y;
-
-    uint8_t bit_depth_divider = 1;
-    if (bit_depth == AOM_BITS_12)
-        bit_depth_divider = 16;
-    else if (bit_depth == AOM_BITS_10)
-        bit_depth_divider = 4;
 
     assert(!(height % 2));
 
