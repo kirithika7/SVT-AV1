@@ -91,6 +91,7 @@ void aom_highbd_dc_left_predictor_32x8_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(4);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_8(left);
     sum = _mm_add_epi16(sum, round);
@@ -103,6 +104,7 @@ void aom_highbd_dc_left_predictor_32x16_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(8);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_16(left);
     sum = _mm_add_epi16(sum, round);
@@ -115,6 +117,7 @@ void aom_highbd_dc_left_predictor_32x32_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(16);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_32(left);
     sum = _mm_add_epi32(sum, round);
@@ -127,6 +130,7 @@ void aom_highbd_dc_left_predictor_32x64_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(32);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_64(left);
     sum = _mm_add_epi32(sum, round);
@@ -141,6 +145,7 @@ void aom_highbd_dc_left_predictor_64x16_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(8);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_16(left);
     sum = _mm_add_epi16(sum, round);
@@ -153,6 +158,7 @@ void aom_highbd_dc_left_predictor_64x32_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(16);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_32(left);
     sum = _mm_add_epi32(sum, round);
@@ -165,6 +171,7 @@ void aom_highbd_dc_left_predictor_64x64_avx512(uint16_t *dst, ptrdiff_t stride,
     const __m128i round = _mm_cvtsi32_si128(32);
     __m128i sum;
     (void)above;
+    (void)bd;
 
     sum = dc_sum_64(left);
     sum = _mm_add_epi32(sum, round);
@@ -182,6 +189,7 @@ static INLINE void dc_top_predictor_32xh(uint16_t *const dst,
 {
     const __m128i round = _mm_cvtsi32_si128(16);
     __m128i sum;
+    (void)bd;
 
     sum = dc_sum_32(above);
     sum = _mm_add_epi32(sum, round);
@@ -193,6 +201,7 @@ void aom_highbd_dc_top_predictor_32x8_avx512(uint16_t *dst, ptrdiff_t stride,
     const uint16_t *above, const uint16_t *left, int32_t bd)
 {
     (void)left;
+
     dc_top_predictor_32xh(dst, stride, above, 8, bd);
 }
 
@@ -225,6 +234,7 @@ static INLINE void dc_top_predictor_64xh(uint16_t *const dst,
 {
     const __m128i round = _mm_cvtsi32_si128(32);
     __m128i sum;
+    (void)bd;
 
     sum = dc_sum_64(above);
     sum = _mm_add_epi32(sum, round);
