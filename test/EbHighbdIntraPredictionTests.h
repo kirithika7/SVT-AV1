@@ -1,3 +1,9 @@
+/*
+ * Copyright(c) 2019 Intel Corporation
+ * SPDX - License - Identifier: BSD - 2 - Clause - Patent
+ */
+
+#ifndef NON_AVX512_SUPPORT
 #pragma once
 #ifndef EbHighbdIntraPredictionTests_h
 #define EbHighbdIntraPredictionTests_h
@@ -91,4 +97,5 @@ static aom_highbd_dc_predictor_func aom_highbd_dc_pred_funcptr_array_naive[7] = 
                             eb_aom_highbd_dc_predictor_64x16_c,
                             eb_aom_highbd_dc_predictor_64x32_c,
                             eb_aom_highbd_dc_predictor_64x64_c };
+#endif
 #endif

@@ -1,11 +1,16 @@
+/*
+ * Copyright(c) 2019 Intel Corporation
+ * SPDX - License - Identifier: BSD - 2 - Clause - Patent
+ */
+
 #include "gtest/gtest.h"
 #include "EbDefinitions.h"
 #include "EbUnitTest.h"
 #include "EbUnitTestUtility.h"
 #include "EbHighbdIntraPredictionTests.h"
 #include <immintrin.h>
-#include <iostream>
 
+#ifndef NON_AVX512_SUPPORT
 using namespace std;
 int bitdepth[] = { 8, 10, 12 };
 
@@ -359,3 +364,4 @@ TEST(HighbdIntraPredictionTest, aom_dc_predictor_kernels)
     }
 
 }
+#endif

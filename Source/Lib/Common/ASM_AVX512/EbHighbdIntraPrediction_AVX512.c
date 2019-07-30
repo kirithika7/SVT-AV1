@@ -1,3 +1,9 @@
+/*
+ * Copyright(c) 2019 Intel Corporation
+ * SPDX - License - Identifier: BSD - 2 - Clause - Patent
+ */
+
+#ifndef NON_AVX512_SUPPORT
 #include <immintrin.h>
 #include "EbHighbdIntraPrediction_SSE2.h"
 #include "EbDefinitions.h"
@@ -428,4 +434,4 @@ void aom_highbd_dc_predictor_64x64_avx512(uint16_t *dst, ptrdiff_t stride,
     sum = _mm_srli_epi32(sum, 7);
     dc_common_predictor_64xh(dst, stride, 64, sum);
 }
-
+#endif
