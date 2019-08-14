@@ -3,12 +3,12 @@
  * SPDX - License - Identifier: BSD - 2 - Clause - Patent
  */
 
-#ifndef NON_AVX512_SUPPORT
 #include <immintrin.h>
 #include "EbHighbdIntraPrediction_SSE2.h"
 #include "EbDefinitions.h"
 #include "aom_dsp_rtcd.h"
 
+#ifndef NON_AVX512_SUPPORT
 // =============================================================================
 
 // DC RELATED PRED
