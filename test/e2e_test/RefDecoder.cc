@@ -291,9 +291,9 @@ static VideoColorFormat trans_video_format(aom_img_fmt_t fmt) {
     case AOM_IMG_FMT_I422: return IMG_FMT_422;
     case AOM_IMG_FMT_I444: return IMG_FMT_444;
     case AOM_IMG_FMT_444A: return IMG_FMT_444A;
-    case AOM_IMG_FMT_I42016: return IMG_FMT_420P10_PACKED;
-    case AOM_IMG_FMT_I42216: return IMG_FMT_422P10_PACKED;
-    case AOM_IMG_FMT_I44416: return IMG_FMT_444P10_PACKED;
+    case AOM_IMG_FMT_I42016: return IMG_FMT_420;
+    case AOM_IMG_FMT_I42216: return IMG_FMT_422;
+    case AOM_IMG_FMT_I44416: return IMG_FMT_444;
     default: break;
     }
     return IMG_FMT_422;
@@ -417,4 +417,17 @@ void RefDecoder::trans_video_frame(const void* image_handle,
         frame.bits_per_sample = 10;
     frame.timestamp =
         init_timestamp_ + ((uint64_t)dec_frame_cnt_ * frame_interval_);
+}
+
+void RefDecoder::control(int ctrl_id, int arg) {
+    const aom_codec_err_t res =
+        aom_codec_control_((aom_codec_ctx_t*)codec_handle_, ctrl_id, arg);
+    ASSERT_EQ(AOM_CODEC_OK, res) << RefDecoderErr();
+}
+
+void RefDecoder::set_invert_tile_decoding_order() {
+    this->control(AV1_INVERT_TILE_DECODE_ORDER, 1);
+    this->control(AV1_SET_DECODE_TILE_ROW, -1);
+    this->control(AV1_SET_DECODE_TILE_COL, -1);
+    this->control(AV1_SET_TILE_MODE, 0);
 }

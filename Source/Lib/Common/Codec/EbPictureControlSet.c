@@ -203,13 +203,6 @@ void picture_control_set_dctor(EbPtr p)
     EB_FREE_ARRAY(obj->mse_seg[0]);
     EB_FREE_ARRAY(obj->mse_seg[1]);
 
-    EB_FREE_ARRAY(obj->src[0]);
-    EB_FREE_ARRAY(obj->ref_coeff[0]);
-    EB_FREE_ARRAY(obj->src[1]);
-    EB_FREE_ARRAY(obj->ref_coeff[1]);
-    EB_FREE_ARRAY(obj->src[2]);
-    EB_FREE_ARRAY(obj->ref_coeff[2]);
-
     EB_FREE_ARRAY(obj->mi_grid_base);
     EB_FREE_ARRAY(obj->mip);
 #if ENABLE_CDF_UPDATE
@@ -999,16 +992,6 @@ EbErrorType picture_control_set_ctor(
     EB_MALLOC_ARRAY(object_ptr->mse_seg[0], pictureLcuWidth * pictureLcuHeight);
     EB_MALLOC_ARRAY(object_ptr->mse_seg[1], pictureLcuWidth * pictureLcuHeight);
 
-    if (!is16bit)
-    {
-        EB_MALLOC_ARRAY(object_ptr->src[0], initDataPtr->picture_width * initDataPtr->picture_height);
-        EB_MALLOC_ARRAY(object_ptr->ref_coeff[0], initDataPtr->picture_width * initDataPtr->picture_height);
-        EB_MALLOC_ARRAY(object_ptr->src[1], initDataPtr->picture_width * initDataPtr->picture_height * 3 / 2);
-        EB_MALLOC_ARRAY(object_ptr->ref_coeff[1],initDataPtr->picture_width * initDataPtr->picture_height * 3 / 2);
-        EB_MALLOC_ARRAY(object_ptr->src[2], initDataPtr->picture_width * initDataPtr->picture_height * 3 / 2);
-        EB_MALLOC_ARRAY(object_ptr->ref_coeff[2], initDataPtr->picture_width * initDataPtr->picture_height * 3 / 2);
-    }
-
     EB_CREATE_MUTEX(object_ptr->rest_search_mutex);
 
     //the granularity is 4x4
@@ -1116,7 +1099,7 @@ static void picture_parent_control_set_dctor(EbPtr p)
     }
 
     EB_FREE_ARRAY(obj->av1_cm->frame_to_show);
-    EB_FREE_ARRAY(obj->av1_cm->rst_tmpbuf);
+    EB_FREE_ALIGNED(obj->av1_cm->rst_tmpbuf);
     EB_FREE_ARRAY(obj->av1_cm);
     EB_FREE_ARRAY(obj->rusi_picture[0]);
     EB_FREE_ARRAY(obj->rusi_picture[1]);

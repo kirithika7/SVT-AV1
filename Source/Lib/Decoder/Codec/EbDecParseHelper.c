@@ -308,8 +308,7 @@ int filter_intra_allowed_bsize(EbDecHandle *dec_handle, BlockSize bs) {
 
 int filter_intra_allowed(EbDecHandle *dec_handle, const ModeInfo_t *mbmi) {
     return mbmi->mode == DC_PRED &&
-        /* TO DO : Add when palette support comes */
-        /*mbmi->palette_mode_info.palette_size[0] == 0 &&*/
+        mbmi->palette_size[0] == 0 &&
         filter_intra_allowed_bsize(dec_handle, mbmi->sb_type);
 }
 
@@ -370,7 +369,7 @@ int has_second_ref(const ModeInfo_t *mbmi) {
     return mbmi->ref_frame[1] > INTRA_FRAME;
 }
 
-static INLINE void integer_mv_precision(MV *mv) {
+void integer_mv_precision(MV *mv) {
     int mod = (mv->row % 8);
     if (mod != 0) {
         mv->row -= mod;
@@ -411,10 +410,10 @@ static INLINE int convert_to_trans_prec(int allow_hp, int coor) {
         return ROUND_POWER_OF_TWO_SIGNED(coor, WARPEDMODEL_PREC_BITS - 2) * 2;
 }
 
-IntMv_dec gm_get_motion_vector(const GlobalMotionParams *gm, int allow_hp,
+IntMvDec gm_get_motion_vector(const GlobalMotionParams *gm, int allow_hp,
     BlockSize bsize, int mi_col, int mi_row, int is_integer)
 {
-    IntMv_dec res;
+    IntMvDec res;
 
     if (gm->gm_type == IDENTITY) {
         res.as_int = 0;

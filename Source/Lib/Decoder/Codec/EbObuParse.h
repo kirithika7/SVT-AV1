@@ -100,6 +100,20 @@ typedef struct ParseNbr4x4Ctxt {
     /* Buffer holding the seg_id_predicted of the left 4x4 blocks corresponding
      to the current super block row. */
     uint8_t *above_seg_pred_ctx;
+
+    /* Value of base colors for Y, U, and V */
+    uint16_t *above_palette_colors[MAX_MB_PLANE];
+    uint16_t *left_palette_colors[MAX_MB_PLANE];
+
+    /* Buffer holding the delta LF values*/
+    int32_t delta_lf[FRAME_LF_COUNT];
+
+    /* Place holder for the current q index*/
+    int32_t cur_q_ind;
+
+    /* Place holder for palette color information */
+    uint16_t palette_colors[MAX_MB_PLANE * PALETTE_MAX_SIZE];
+
 } ParseNbr4x4Ctxt;
 
 typedef struct ParseCtxt {
@@ -161,7 +175,9 @@ typedef struct ParseCtxt {
 
 int get_qindex(SegmentationParams *seg_params, int segment_id, int base_q_idx);
 void parse_super_block(EbDecHandle *dec_handle,
-    uint32_t blk_row, uint32_t blk_col, SBInfo *sbInfo);
+    uint32_t blk_row, uint32_t blk_col, SBInfo *sbInfo,
+    int32_t ref_sgr_xqd[MAX_MB_PLANE][2],
+    int32_t ref_lr_wiener[MAX_MB_PLANE][2][3]);
 
 void svt_setup_motion_field(EbDecHandle *dec_handle);
 

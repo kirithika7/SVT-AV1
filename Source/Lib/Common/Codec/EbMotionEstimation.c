@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 
+#include "aom_dsp_rtcd.h"
 #include "EbDefinitions.h"
 
 #include "EbPictureControlSet.h"
@@ -14427,6 +14428,9 @@ EbErrorType motion_estimate_lcu(
                             21,
                             1,
                             MAX_SAD_VALUE);
+
+                        context_ptr->full_quarter_pel_refinement = 0;
+
                         context_ptr->p_best_sad64x64 = &(
                             context_ptr->p_sb_best_sad[listIndex][ref_pic_index]
                                                       [ME_TIER_ZERO_PU_64x64]);

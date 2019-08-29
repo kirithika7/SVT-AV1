@@ -15,11 +15,13 @@
 #include "EbSvtAv1Enc.h"
 #include "Y4mVideoSource.h"
 #include "YuvVideoSource.h"
+#include "DummyVideoSource.h"
 #include "gtest/gtest.h"
 #include "EbDefinitions.h"
 #include "RefDecoder.h"
 #include "SvtAv1E2EFramework.h"
 #include "CompareTools.h"
+#include "ConfigEncoder.h"
 
 #if _WIN32
 #define fseeko64 _fseeki64
@@ -50,6 +52,13 @@ VideoSource *SvtAv1E2ETestFramework::prepare_video_src(
                                        std::get<4>(vector),
                                        (uint8_t)std::get<5>(vector),
                                        std::get<6>(vector));
+        break;
+    case DUMMY_SOURCE:
+        video_src = new DummyVideoSource(std::get<2>(vector),
+                                         std::get<3>(vector),
+                                         std::get<4>(vector),
+                                         (uint8_t)std::get<5>(vector),
+                                         std::get<6>(vector));
         break;
     default: assert(0); break;
     }
@@ -97,6 +106,8 @@ SvtAv1E2ETestFramework::SvtAv1E2ETestFramework() : enc_setting(GetParam()) {
     enable_stat = false;
     enable_save_bitstream = false;
     enable_analyzer = false;
+    enable_config = false;
+    enc_config_ = create_enc_config();
 }
 
 SvtAv1E2ETestFramework::~SvtAv1E2ETestFramework() {
@@ -104,13 +115,30 @@ SvtAv1E2ETestFramework::~SvtAv1E2ETestFramework() {
         delete collect_;
         collect_ = nullptr;
     }
+    if (enc_config_) {
+        release_enc_config(enc_config_);
+        enc_config_ = nullptr;
+    }
 }
 
 void SvtAv1E2ETestFramework::config_test() {
     enable_stat = true;
+    if (enable_config) {
+        // iterate the mappings and update config
+        for (auto &x : enc_setting.setting) {
+            set_enc_config(enc_config_, x.first.c_str(), x.second.c_str());
+            printf("EncSetting: %s = %s\n", x.first.c_str(), x.second.c_str());
+        }
+    }
 }
 
 void SvtAv1E2ETestFramework::update_enc_setting() {
+    if (enable_config) {
+        copy_enc_param(&av1enc_ctx_.enc_params, enc_config_);
+        setup_src_param(video_src_, av1enc_ctx_.enc_params);
+        if (recon_queue_)
+            av1enc_ctx_.enc_params.recon_enabled = 1;
+    }
 }
 
 void SvtAv1E2ETestFramework::post_process() {
@@ -184,10 +212,10 @@ void SvtAv1E2ETestFramework::init_test(TestVideoVector &test_vector) {
     if (enable_recon) {
         // create recon queue to store the recon yuvs
         VideoFrameParam param;
-        memset(&param, 0, sizeof(param));
         param.format = video_src_->get_image_format();
         param.width = video_src_->get_width_with_padding();
         param.height = video_src_->get_height_with_padding();
+        param.bits_per_sample = video_src_->get_bit_depth();
         recon_queue_ = create_frame_queue(param);
         ASSERT_NE(recon_queue_, nullptr) << "can not create recon sink!!";
         if (recon_queue_)
@@ -226,6 +254,8 @@ void SvtAv1E2ETestFramework::init_test(TestVideoVector &test_vector) {
     // create reference decoder if required.
     if (enable_decoder) {
         refer_dec_ = create_reference_decoder(enable_analyzer);
+        if (enable_invert_tile_decoding)
+            refer_dec_->set_invert_tile_decoding_order();
         ASSERT_NE(refer_dec_, nullptr) << "can not create reference decoder!!";
     }
 
@@ -714,32 +744,26 @@ void SvtAv1E2ETestFramework::check_psnr(const VideoFrame &frame) {
 }
 
 static bool transfer_frame_planes(VideoFrame *frame) {
-    uint32_t luma_size = frame->stride[0] * frame->height;
-    if (frame->buf_size != 4 * luma_size) {
+    if (frame->buf_size != VideoFrame::calculate_max_frame_size(*frame)) {
         printf("buffer size doesn't match!\n");
         return false;
     }
-    bool half_height = false;
-    if (frame->format == IMG_FMT_420P10_PACKED ||
-        frame->format == IMG_FMT_422P10_PACKED ||
-        frame->format == IMG_FMT_444P10_PACKED) {
-        luma_size *= 2;
-    }
+
+    uint32_t height_scale = 1;
     if (frame->format == IMG_FMT_420 ||
         frame->format == IMG_FMT_420P10_PACKED ||
         frame->format == IMG_FMT_NV12) {
-        half_height = true;
+        height_scale = 2;
     }
     if (frame->stride[3]) {
         uint32_t offset = frame->stride[0] * frame->height +
                           ((frame->stride[1] + frame->stride[2]) *
-                           (half_height ? frame->height / 2 : frame->height));
+                           frame->height / height_scale);
         memcpy(frame->planes[3], frame->buffer + offset, frame->buf_size >> 2);
     }
     if (frame->stride[2]) {
         uint32_t offset = frame->stride[0] * frame->height +
-                          (frame->stride[1] *
-                           (half_height ? frame->height / 2 : frame->height));
+                          (frame->stride[1] * frame->height / height_scale);
         memcpy(frame->planes[2], frame->buffer + offset, frame->buf_size >> 2);
     }
     if (frame->stride[1]) {
