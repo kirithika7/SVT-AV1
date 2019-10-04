@@ -24,9 +24,7 @@
 void eb_av1_tile_set_col(TileInfo *tile, PictureParentControlSet * pcs_ptr, int col);
 void eb_av1_tile_set_row(TileInfo *tile, PictureParentControlSet * pcs_ptr, int row);
 void set_tile_info(PictureParentControlSet * pcs_ptr);
-#if ENABLE_CDF_UPDATE
 extern MvReferenceFrame svt_get_ref_frame_type(uint8_t list, uint8_t ref_idx);
-#endif
 /************************************************
  * Defines
  ************************************************/
@@ -390,11 +388,9 @@ void* picture_manager_kernel(void *input_ptr)
                     referenceEntryPtr->reference_object_ptr = (EbObjectWrapper*)EB_NULL;
                     referenceEntryPtr->release_enable = EB_TRUE;
                     referenceEntryPtr->reference_available = EB_FALSE;
-#if ENABLE_CDF_UPDATE
                     referenceEntryPtr->slice_type = picture_control_set_ptr->slice_type;
                     referenceEntryPtr->temporal_layer_index = picture_control_set_ptr->temporal_layer_index;
                     referenceEntryPtr->frame_context_updated = EB_FALSE;
-#endif
                     referenceEntryPtr->is_alt_ref = picture_control_set_ptr->is_alt_ref;
                     referenceEntryPtr->feedback_arrived = EB_FALSE;
                     referenceEntryPtr->is_used_as_reference_flag = picture_control_set_ptr->is_used_as_reference_flag;
@@ -480,7 +476,6 @@ void* picture_manager_kernel(void *input_ptr)
             eb_release_object(inputPictureDemuxPtr->sequence_control_set_wrapper_ptr);
 
             break;
-#if ENABLE_CDF_UPDATE
         case EB_PIC_FEEDBACK:
             sequence_control_set_ptr = (SequenceControlSet*)inputPictureDemuxPtr->sequence_control_set_wrapper_ptr->object_ptr;
             encode_context_ptr = sequence_control_set_ptr->encode_context_ptr;
@@ -501,7 +496,6 @@ void* picture_manager_kernel(void *input_ptr)
             eb_release_object(inputPictureDemuxPtr->sequence_control_set_wrapper_ptr);
 
             break;
-#endif
         default:
 
             sequence_control_set_ptr = (SequenceControlSet*)inputPictureDemuxPtr->sequence_control_set_wrapper_ptr->object_ptr;
@@ -585,9 +579,7 @@ void* picture_manager_kernel(void *input_ptr)
                                 (!encode_context_ptr->terminating_sequence_flag_received &&
                                 (sequence_control_set_ptr->static_config.rate_control_mode && entryPictureControlSetPtr->slice_type != I_SLICE
                                     && entryPictureControlSetPtr->temporal_layer_index == 0 && !referenceEntryPtr->feedback_arrived)) ? EB_FALSE :
-#if ENABLE_CDF_UPDATE
                                     (entryPictureControlSetPtr->frame_end_cdf_update_mode && !referenceEntryPtr->frame_context_updated) ? EB_FALSE :
-#endif
                                 (referenceEntryPtr->reference_available) ? EB_TRUE :   // The Reference has been completed
                                 EB_FALSE;     // The Reference has not been completed
                         }
@@ -629,9 +621,7 @@ void* picture_manager_kernel(void *input_ptr)
                                         (!encode_context_ptr->terminating_sequence_flag_received &&
                                         (sequence_control_set_ptr->static_config.rate_control_mode && entryPictureControlSetPtr->slice_type != I_SLICE
                                             && entryPictureControlSetPtr->temporal_layer_index == 0 && !referenceEntryPtr->feedback_arrived)) ? EB_FALSE :
-#if ENABLE_CDF_UPDATE
                                             (entryPictureControlSetPtr->frame_end_cdf_update_mode && !referenceEntryPtr->frame_context_updated) ? EB_FALSE :
-#endif
                                         (referenceEntryPtr->reference_available) ? EB_TRUE :   // The Reference has been completed
                                         EB_FALSE;     // The Reference has not been completed
                                 }
@@ -698,8 +688,6 @@ void* picture_manager_kernel(void *input_ptr)
 
                         ChildPictureControlSetPtr->parent_pcs_ptr->av1_cm->pcs_ptr = ChildPictureControlSetPtr;
 
-                        set_tile_info(ChildPictureControlSetPtr->parent_pcs_ptr);
-
                         struct PictureParentControlSet     *ppcs_ptr = ChildPictureControlSetPtr->parent_pcs_ptr;
                         Av1Common *const cm = ppcs_ptr->av1_cm;
                         int tile_row, tile_col;
@@ -726,9 +714,7 @@ void* picture_manager_kernel(void *input_ptr)
                                 }
                             }
                         }
-#if INCOMPLETE_SB_FIX
                         cm->mi_stride = ChildPictureControlSetPtr->mi_stride;
-#endif
                         // Picture edges
                         ConfigurePictureEdges(entrySequenceControlSetPtr, ChildPictureControlSetPtr);
 
@@ -742,7 +728,6 @@ void* picture_manager_kernel(void *input_ptr)
                             ChildPictureControlSetPtr->parent_pcs_ptr->pred_struct_ptr->pred_struct_entry_ptr_array[ChildPictureControlSetPtr->parent_pcs_ptr->pred_struct_index]->positive_ref_pics_total_count == 0);
 
                         // Rate Control
-                        ChildPictureControlSetPtr->use_delta_qp = (uint8_t)entrySequenceControlSetPtr->static_config.improve_sharpness;
                         ChildPictureControlSetPtr->dif_cu_delta_qp_depth = (uint8_t)entrySequenceControlSetPtr->input_resolution == INPUT_SIZE_4K_RANGE ? 3 : 2;
 
                         // Reset the Reference Lists
@@ -755,9 +740,7 @@ void* picture_manager_kernel(void *input_ptr)
                         EB_MEMSET(ChildPictureControlSetPtr->ref_slice_type_array[REF_LIST_0], 0, REF_LIST_MAX_DEPTH * sizeof(EB_SLICE));
                         EB_MEMSET(ChildPictureControlSetPtr->ref_slice_type_array[REF_LIST_1], 0, REF_LIST_MAX_DEPTH * sizeof(EB_SLICE));
 
-#if ENABLE_CDF_UPDATE
                         int8_t max_temporal_index = -1, ref_index = 0;
-#endif
                         // Configure List0
                         if ((entryPictureControlSetPtr->slice_type == P_SLICE) || (entryPictureControlSetPtr->slice_type == B_SLICE)) {
                             uint8_t refIdx;
@@ -774,7 +757,6 @@ void* picture_manager_kernel(void *input_ptr)
                                         REFERENCE_QUEUE_MAX_DEPTH);                                                                                             // Max
 
                                     referenceEntryPtr = encode_context_ptr->reference_picture_queue[referenceQueueIndex];
-#if ENABLE_CDF_UPDATE
                                     if (entryPictureControlSetPtr->frame_end_cdf_update_mode) {
                                         ChildPictureControlSetPtr->ref_frame_context[svt_get_ref_frame_type(REF_LIST_0, refIdx) - LAST_FRAME] = ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->frame_context;
                                         if (max_temporal_index < (int8_t)referenceEntryPtr->temporal_layer_index) {
@@ -785,17 +767,10 @@ void* picture_manager_kernel(void *input_ptr)
                                                 ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->global_motion[frame];
                                         }
                                     }
-#endif
                                     // Set the Reference Object
                                     ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_0][refIdx] = referenceEntryPtr->reference_object_ptr;
-
-#if ADD_DELTA_QP_SUPPORT
-                                    ChildPictureControlSetPtr->ref_pic_qp_array[REF_LIST_0][refIdx] = (uint8_t)((EbReferenceObject_t*)referenceEntryPtr->reference_object_ptr->object_ptr)->qp;
-                                    ChildPictureControlSetPtr->ref_slice_type_array[REF_LIST_0][refIdx] = (uint8_t)((EbReferenceObject_t*)referenceEntryPtr->reference_object_ptr->object_ptr)->slice_type;
-#else
-                                    ChildPictureControlSetPtr->ref_pic_qp_array[REF_LIST_0][refIdx] = ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->qp;
+                                    ChildPictureControlSetPtr->ref_pic_qp_array[REF_LIST_0][refIdx] = (uint8_t)((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->qp;
                                     ChildPictureControlSetPtr->ref_slice_type_array[REF_LIST_0][refIdx] = ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->slice_type;
-#endif
                                     // Increment the Reference's liveCount by the number of tiles in the input picture
                                     eb_object_inc_live_count(
                                         referenceEntryPtr->reference_object_ptr,
@@ -810,6 +785,14 @@ void* picture_manager_kernel(void *input_ptr)
                                         EB_ENC_PM_ERROR1);
                                 }
                             }
+                            //fill the non used spots to be used in MFMV.
+                            for (refIdx = entryPictureControlSetPtr->ref_list0_count; refIdx < 4; ++refIdx)
+                                ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_0][refIdx] = ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_0][0];
+
+                            if (entryPictureControlSetPtr->ref_list1_count == 0) {
+                                for (refIdx = entryPictureControlSetPtr->ref_list1_count; refIdx < 3; ++refIdx)
+                                    ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_1][refIdx] = ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_0][0];
+                            }
                         }
 
                         // Configure List1
@@ -822,7 +805,6 @@ void* picture_manager_kernel(void *input_ptr)
                                         REFERENCE_QUEUE_MAX_DEPTH);                                                                                             // Max
 
                                     referenceEntryPtr = encode_context_ptr->reference_picture_queue[referenceQueueIndex];
-#if ENABLE_CDF_UPDATE
                                     if (entryPictureControlSetPtr->frame_end_cdf_update_mode) {
                                         ChildPictureControlSetPtr->ref_frame_context[svt_get_ref_frame_type(REF_LIST_1, refIdx) - LAST_FRAME] = ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->frame_context;
                                         if (max_temporal_index < (int8_t)referenceEntryPtr->temporal_layer_index && referenceEntryPtr->slice_type != I_SLICE/* && ChildPictureControlSetPtr->temporal_layer_index != 0*/) {
@@ -833,7 +815,6 @@ void* picture_manager_kernel(void *input_ptr)
                                                 ((EbReferenceObject*)referenceEntryPtr->reference_object_ptr->object_ptr)->global_motion[frame];
                                         }
                                     }
-#endif
                                     // Set the Reference Object
                                     ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_1][refIdx] = referenceEntryPtr->reference_object_ptr;
 
@@ -854,6 +835,11 @@ void* picture_manager_kernel(void *input_ptr)
                                         EB_ENC_PM_ERROR1);
                                 }
                             }
+                            //fill the non used spots to be used in MFMV.
+                            if (entryPictureControlSetPtr->ref_list1_count) {
+                                for (refIdx = entryPictureControlSetPtr->ref_list1_count; refIdx < 3; ++refIdx)
+                                    ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_1][refIdx] = ChildPictureControlSetPtr->ref_pic_ptr_array[REF_LIST_1][0];
+                            }
                         }
 
                         // Adjust the Slice-type if the Lists are Empty, but don't reset the Prediction Structure
@@ -861,7 +847,6 @@ void* picture_manager_kernel(void *input_ptr)
                             (entryPictureControlSetPtr->ref_list1_count > 0) ? B_SLICE :
                             (entryPictureControlSetPtr->ref_list0_count > 0) ? P_SLICE :
                             I_SLICE;
-#if ENABLE_CDF_UPDATE
                         if (entryPictureControlSetPtr->frame_end_cdf_update_mode) {
                             if (entryPictureControlSetPtr->slice_type != I_SLICE)
                                 ChildPictureControlSetPtr->parent_pcs_ptr->frm_hdr.primary_ref_frame = ref_index;
@@ -874,7 +859,6 @@ void* picture_manager_kernel(void *input_ptr)
                             ChildPictureControlSetPtr->parent_pcs_ptr->frm_hdr.primary_ref_frame = PRIMARY_REF_NONE;
                             ChildPictureControlSetPtr->parent_pcs_ptr->refresh_frame_context = REFRESH_FRAME_CONTEXT_DISABLED;
                         }
-#endif
                         // Increment the sequenceControlSet Wrapper's live count by 1 for only the pictures which are used as reference
                         if (ChildPictureControlSetPtr->parent_pcs_ptr->is_used_as_reference_flag) {
                             eb_object_inc_live_count(

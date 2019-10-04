@@ -128,10 +128,16 @@ extern "C" {
         EbBool                                 local_warp_valid;
         EbWarpedMotionParams                   wm_params;
         uint8_t                                tx_depth;
-#if COMP_MODE
-        INTERINTER_COMPOUND_DATA               interinter_comp;
+        InterInterCompoundData                 interinter_comp;
         uint8_t                                compound_idx;
         uint8_t                                comp_group_idx;
+        CAND_CLASS                             cand_class;
+#if II_COMP_FLAG
+        INTERINTRA_MODE                        interintra_mode;
+        uint8_t                                is_interintra_used;
+        uint8_t                                use_wedge_interintra;
+        int32_t                                interintra_wedge_index;//inter_intra wedge index
+        int32_t                                ii_wedge_sign;//inter_intra wedge sign=-1
 #endif
     } ModeDecisionCandidate;
 
@@ -145,7 +151,7 @@ extern "C" {
         EbAsm                                   asm_type);
     typedef uint64_t(*EbFastCostFunc)(
         CodingUnit                           *cu_ptr,
-        struct ModeDecisionCandidate         *candidateBuffer,
+        struct ModeDecisionCandidate         *candidate_buffer,
         uint32_t                                qp,
         uint64_t                                luma_distortion,
         uint64_t                                chroma_distortion,
@@ -204,14 +210,14 @@ extern "C" {
     /**************************************
     * Mode Decision Candidate Buffer
     **************************************/
-    typedef struct IntraChromaCandidateBuffer
+    typedef struct IntraChromacandidate_buffer
     {
         uint32_t                              mode;
         uint64_t                              cost;
         uint64_t                              distortion;
         EbPictureBufferDesc                  *prediction_ptr;
         EbPictureBufferDesc                  *residual_ptr;
-    } IntraChromaCandidateBuffer;
+    } IntraChromacandidate_buffer;
 
     /**************************************
     * Mode Decision Candidate Buffer
@@ -263,22 +269,16 @@ extern "C" {
         uint64_t                       *full_cost_skip_ptr,
         uint64_t                       *full_cost_merge_ptr
     );
-    uint8_t product_full_mode_decision(
-        struct ModeDecisionContext   *context_ptr,
+
+    uint32_t product_full_mode_decision(
+         struct ModeDecisionContext  *context_ptr,
         CodingUnit                   *cu_ptr,
-        uint8_t                         bwidth,
-        uint8_t                         bheight,
         ModeDecisionCandidateBuffer **buffer_ptr_array,
-        uint32_t                        candidate_total_count,
-        uint8_t                        *best_candidate_index_array,
-        uint32_t                       *best_intra_mode);
-    void sort_fast_loop_candidates(
-        struct ModeDecisionContext   *context_ptr,
-        uint32_t                        buffer_total_count,
-        ModeDecisionCandidateBuffer **buffer_ptr_array,
-        uint8_t                        *best_candidate_index_array,
-        uint8_t                        *sorted_candidate_index_array,
-        uint64_t                       *ref_fast_cost);
+        uint32_t                      candidate_total_count,
+        uint32_t                     *best_candidate_index_array,
+        uint8_t                       prune_ref_frame_for_rec_partitions,
+        uint32_t                     *best_intra_mode);
+
     typedef EbErrorType(*EB_INTRA_4x4_FAST_LUMA_COST_FUNC)(
         struct ModeDecisionContext           *context_ptr,
         uint32_t                                pu_index,

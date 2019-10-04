@@ -58,18 +58,6 @@ void LogErrorOutput(
         fprintf(error_log_file, "Error: The availability parameter in GetSpatialMVPPosBx() function can not be > 7 !\n");
         break;
 
-    case EB_ENC_AMVP_ERROR6:
-        fprintf(error_log_file, "Error: GetTemporalMVP: tmvpMapLcuIndex must be either 0 or 1!\n");
-        break;
-
-    case EB_ENC_AMVP_ERROR7:
-        fprintf(error_log_file, "Error: the input PU to GetNonScalingSpatialAMVP() must be available!");
-        break;
-
-    case EB_ENC_AMVP_ERROR8:
-        fprintf(error_log_file, "Error: GetTemporalMVP: tmvpMapLcuIndex must be either 0 or 1");
-        break;
-
     case EB_ENC_AMVP_NULL_REF_ERROR:
         fprintf(error_log_file, "Error: The referenceObject can not be NULL!\n");
         break;
@@ -634,12 +622,12 @@ void ProcessInputFieldStandardMode(
     ebInputPtr = lumaInputPtr;
     // Skip 1 luma row if bottom field (point to the bottom field)
     if (config->processed_frame_count % 2 != 0)
-        fseeko64(input_file, (long)source_luma_row_size, SEEK_CUR);
+        fseeko(input_file, (long)source_luma_row_size, SEEK_CUR);
 
     for (inputRowIndex = 0; inputRowIndex < input_padded_height; inputRowIndex++) {
         headerPtr->n_filled_len += (uint32_t)fread(ebInputPtr, 1, source_luma_row_size, input_file);
         // Skip 1 luma row (only fields)
-        fseeko64(input_file, (long)source_luma_row_size, SEEK_CUR);
+        fseeko(input_file, (long)source_luma_row_size, SEEK_CUR);
         ebInputPtr += source_luma_row_size;
     }
 
@@ -647,14 +635,14 @@ void ProcessInputFieldStandardMode(
     ebInputPtr = cbInputPtr;
     // Step back 1 luma row if bottom field (undo the previous jump), and skip 1 chroma row if bottom field (point to the bottom field)
     if (config->processed_frame_count % 2 != 0) {
-        fseeko64(input_file, -(long)source_luma_row_size, SEEK_CUR);
-        fseeko64(input_file, (long)source_chroma_row_size, SEEK_CUR);
+        fseeko(input_file, -(long)source_luma_row_size, SEEK_CUR);
+        fseeko(input_file, (long)source_chroma_row_size, SEEK_CUR);
     }
 
     for (inputRowIndex = 0; inputRowIndex < input_padded_height >> subsampling_y; inputRowIndex++) {
         headerPtr->n_filled_len += (uint32_t)fread(ebInputPtr, 1, source_chroma_row_size, input_file);
         // Skip 1 chroma row (only fields)
-        fseeko64(input_file, (long)source_chroma_row_size, SEEK_CUR);
+        fseeko(input_file, (long)source_chroma_row_size, SEEK_CUR);
         ebInputPtr += source_chroma_row_size;
     }
 
@@ -666,13 +654,13 @@ void ProcessInputFieldStandardMode(
     for (inputRowIndex = 0; inputRowIndex < input_padded_height >> subsampling_y; inputRowIndex++) {
         headerPtr->n_filled_len += (uint32_t)fread(ebInputPtr, 1, source_chroma_row_size, input_file);
         // Skip 1 chroma row (only fields)
-        fseeko64(input_file, (long)source_chroma_row_size, SEEK_CUR);
+        fseeko(input_file, (long)source_chroma_row_size, SEEK_CUR);
         ebInputPtr += source_chroma_row_size;
     }
 
     // Step back 1 chroma row if bottom field (undo the previous jump)
     if (config->processed_frame_count % 2 != 0)
-        fseeko64(input_file, -(long)source_chroma_row_size, SEEK_CUR);
+        fseeko(input_file, -(long)source_chroma_row_size, SEEK_CUR);
 }
 
 //************************************/
@@ -803,14 +791,13 @@ void ReadInputFrames(
                     read_y4m_frame_delimiter(config);
                 uint64_t lumaReadSize = (uint64_t)input_padded_width*input_padded_height << is16bit;
                 ebInputPtr = inputPtr->luma;
-                if(config->y4m_input==EB_FALSE && config->processed_frame_count == 0 && config->input_file == stdin) {
-                    /* if not a y4m file and input is read from stdin, 9 bytes were already read when checking
-                        or the YUV4MPEG2 string in the stream, so copy those bytes over */
-                    memcpy(ebInputPtr,config->y4m_buf,YUV4MPEG2_IND_SIZE);
+                if (!config->y4m_input && config->processed_frame_count == 0 && config->input_file_is_fifo) {
+                    /* 9 bytes were already buffered during the the YUV4MPEG2 header probe */
+                    memcpy(ebInputPtr, config->y4m_buf, YUV4MPEG2_IND_SIZE);
                     headerPtr->n_filled_len += YUV4MPEG2_IND_SIZE;
                     ebInputPtr += YUV4MPEG2_IND_SIZE;
                     headerPtr->n_filled_len += (uint32_t)fread(ebInputPtr, 1, lumaReadSize-YUV4MPEG2_IND_SIZE, input_file);
-                }else {
+                } else {
                     headerPtr->n_filled_len += (uint32_t)fread(inputPtr->luma, 1, lumaReadSize, input_file);
                 }
                 headerPtr->n_filled_len += (uint32_t)fread(inputPtr->cb, 1, lumaReadSize >> (3 - color_format), input_file);
@@ -854,9 +841,10 @@ void ReadInputFrames(
                 headerPtr->n_filled_len += (uint32_t)fread(inputPtr->cr_ext, 1, nbitChromaReadSize, input_file);
             }
         }
+
         if (feof(input_file) != 0) {
-            if (input_file == stdin) {
-                //for stdin, we only know this when we reach eof
+            if (config->input_file_is_fifo) {
+                //for a fifo, we only know this when we reach eof
                 config->frames_to_be_encoded = config->frames_encoded;
                 if (headerPtr->n_filled_len != readSize) {
                     // not a completed frame
@@ -866,8 +854,8 @@ void ReadInputFrames(
                 // If we reached the end of file, loop over again
                 fseek(input_file, 0, SEEK_SET);
             }
-
         }
+
     } else {
         if (is16bit && config->compressed_ten_bit_format == 1) {
             // Determine size of each plane
@@ -1089,10 +1077,10 @@ static void write_ivf_stream_header(EbConfig *config)
 static void update_prev_ivf_header(EbConfig *config){
     char header[4]; // only for the number of bytes
     if (config && config->bitstream_file && config->byte_count_since_ivf != 0){
-        fseeko64(config->bitstream_file, (-(int32_t)(config->byte_count_since_ivf + IVF_FRAME_HEADER_SIZE)),SEEK_CUR);
+        fseeko(config->bitstream_file, (-(int32_t)(config->byte_count_since_ivf + IVF_FRAME_HEADER_SIZE)),SEEK_CUR);
         mem_put_le32(&header[0], (int32_t)(config->byte_count_since_ivf));
         fwrite(header, 1, 4, config->bitstream_file);
-        fseeko64(config->bitstream_file, (config->byte_count_since_ivf + IVF_FRAME_HEADER_SIZE - 4), SEEK_CUR);
+        fseeko(config->bitstream_file, (config->byte_count_since_ivf + IVF_FRAME_HEADER_SIZE - 4), SEEK_CUR);
         config->byte_count_since_ivf = 0;
     }
 }
@@ -1366,10 +1354,10 @@ AppExitConditionType ProcessOutputReconBuffer(
         rewind(config->recon_file);
         uint64_t frameNum = headerPtr->pts;
         while (frameNum>0) {
-            fseekReturnVal = fseeko64(config->recon_file, headerPtr->n_filled_len, SEEK_CUR);
+            fseekReturnVal = fseeko(config->recon_file, headerPtr->n_filled_len, SEEK_CUR);
 
             if (fseekReturnVal != 0) {
-                printf("Error in fseeko64  returnVal %i\n", fseekReturnVal);
+                printf("Error in fseeko  returnVal %i\n", fseekReturnVal);
                 return APP_ExitConditionError;
             }
             frameNum = frameNum - 1;

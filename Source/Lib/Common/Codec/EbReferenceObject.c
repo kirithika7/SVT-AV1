@@ -126,6 +126,7 @@ static void eb_reference_object_dctor(EbPtr p)
     EbReferenceObject *obj = (EbReferenceObject*)p;
     EB_DELETE(obj->reference_picture16bit);
     EB_DELETE(obj->reference_picture);
+    EB_FREE_ALIGNED_ARRAY(obj->mvs);
 }
 
 
@@ -178,6 +179,14 @@ EbErrorType eb_reference_object_ctor(
             pictureBufferDescInitDataPtr,
             pictureBufferDescInitData16BitPtr.bit_depth);
     }
+    if (pictureBufferDescInitDataPtr->mfmv)
+    {
+        //MFMV map is 8x8 based.
+        uint32_t mi_rows = referenceObject->reference_picture->height >> MI_SIZE_LOG2;
+        uint32_t mi_cols = referenceObject->reference_picture->width >> MI_SIZE_LOG2;
+        const int mem_size = ((mi_rows + 1) >> 1) * ((mi_cols + 1) >> 1);
+        EB_CALLOC_ALIGNED_ARRAY(referenceObject->mvs, mem_size);
+    }
     memset(&referenceObject->film_grain_params, 0, sizeof(referenceObject->film_grain_params));
 
     return EB_ErrorNone;
@@ -202,10 +211,8 @@ static void eb_pa_reference_object_dctor(EbPtr p)
     EB_DELETE(obj->input_padded_picture_ptr);
     EB_DELETE(obj->quarter_decimated_picture_ptr);
     EB_DELETE(obj->sixteenth_decimated_picture_ptr);
-#if DOWN_SAMPLING_FILTERING
     EB_DELETE(obj->quarter_filtered_picture_ptr);
     EB_DELETE(obj->sixteenth_filtered_picture_ptr);
-#endif
 }
 
 /*****************************************

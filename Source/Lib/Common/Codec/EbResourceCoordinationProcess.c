@@ -16,6 +16,9 @@
 #include "EbTransforms.h"
 #include "EbTime.h"
 
+void eb_av1_tile_set_col(TileInfo *tile, PictureParentControlSet * pcs_ptr, int col);
+void eb_av1_tile_set_row(TileInfo *tile, PictureParentControlSet * pcs_ptr, int row);
+void set_tile_info(PictureParentControlSet * pcs_ptr);
 void resource_coordination_context_dctor(EbPtr p)
 {
     ResourceCoordinationContext *obj = (ResourceCoordinationContext*)p;
@@ -92,7 +95,7 @@ EbErrorType signal_derivation_pre_analysis_oq(
 
     // Derive HME Flag
     if (sequence_control_set_ptr->static_config.use_default_me_hme) {
-        picture_control_set_ptr->enable_hme_flag = EB_TRUE;
+        picture_control_set_ptr->enable_hme_flag = enable_hme_flag[0][input_resolution][hme_me_level] || enable_hme_flag[1][input_resolution][hme_me_level];
         picture_control_set_ptr->enable_hme_level0_flag = enable_hme_level0_flag[0][input_resolution][hme_me_level] || enable_hme_level0_flag[1][input_resolution][hme_me_level];
         picture_control_set_ptr->enable_hme_level1_flag = enable_hme_level1_flag[0][input_resolution][hme_me_level] || enable_hme_level1_flag[1][input_resolution][hme_me_level];
         picture_control_set_ptr->enable_hme_level2_flag = enable_hme_level2_flag[0][input_resolution][hme_me_level] || enable_hme_level2_flag[1][input_resolution][hme_me_level];
@@ -103,15 +106,14 @@ EbErrorType signal_derivation_pre_analysis_oq(
         picture_control_set_ptr->enable_hme_level1_flag = sequence_control_set_ptr->static_config.enable_hme_level1_flag;
         picture_control_set_ptr->enable_hme_level2_flag = sequence_control_set_ptr->static_config.enable_hme_level2_flag;
     }
-
-    picture_control_set_ptr->tf_enable_hme_flag = EB_TRUE;
+    picture_control_set_ptr->tf_enable_hme_flag = tf_enable_hme_flag[0][input_resolution][hme_me_level] || tf_enable_hme_flag[1][input_resolution][hme_me_level];
     picture_control_set_ptr->tf_enable_hme_level0_flag = tf_enable_hme_level0_flag[0][input_resolution][hme_me_level] || tf_enable_hme_level0_flag[1][input_resolution][hme_me_level];
     picture_control_set_ptr->tf_enable_hme_level1_flag = tf_enable_hme_level1_flag[0][input_resolution][hme_me_level] || tf_enable_hme_level1_flag[1][input_resolution][hme_me_level];
     picture_control_set_ptr->tf_enable_hme_level2_flag = tf_enable_hme_level2_flag[0][input_resolution][hme_me_level] || tf_enable_hme_level2_flag[1][input_resolution][hme_me_level];
 
     if (picture_control_set_ptr->enc_mode >= ENC_M8)
         sequence_control_set_ptr->seq_header.enable_restoration = 0;
-
+    sequence_control_set_ptr->cdf_mode = (picture_control_set_ptr->enc_mode <= ENC_M6) ? 0 : 1;
     return return_error;
 }
 
@@ -308,8 +310,6 @@ void ResetPcsAv1(
     frm_hdr->quantization_params.qm_y = 5;
     frm_hdr->quantization_params.qm_u = 5;
     frm_hdr->quantization_params.qm_v = 5;
-    // Whether to use previous frame's motion vectors for prediction.
-    frm_hdr->use_ref_frame_mvs = 0;
     frm_hdr->is_motion_mode_switchable = 0;
     // Flag signaling how frame contexts should be updated at the end of
     // a frame decode
@@ -625,19 +625,12 @@ void* resource_coordination_kernel(void *input_ptr)
             }
         }
         eb_release_mutex(context_ptr->sequence_control_set_instance_array[instance_index]->config_mutex);
-#if ENABLE_CDF_UPDATE
         // Seque Control Set is released by Rate Control after passing through MDC->MD->ENCDEC->Packetization->RateControl,
         // in the PictureManager after receiving the reference and in PictureManager after receiving the feedback
         eb_object_inc_live_count(
             context_ptr->sequenceControlSetActiveArray[instance_index],
             3);
-#else
-        // Sequence Control Set is released by Rate Control after passing through MDC->MD->ENCDEC->Packetization->RateControl
-        //   and in the PictureManager
-        eb_object_inc_live_count(
-            context_ptr->sequenceControlSetActiveArray[instance_index],
-            2);
-#endif
+
         // Set the current SequenceControlSet
         sequence_control_set_ptr = (SequenceControlSet*)context_ptr->sequenceControlSetActiveArray[instance_index]->object_ptr;
 
@@ -653,7 +646,10 @@ void* resource_coordination_kernel(void *input_ptr)
             sequence_control_set_ptr->enable_altrefs =  sequence_control_set_ptr->static_config.enable_altrefs &&
                 sequence_control_set_ptr->static_config.altref_nframes > 1 &&
                 sequence_control_set_ptr->static_config.encoder_bit_depth == EB_8BIT ? EB_TRUE : EB_FALSE;
-#if COMP_MODE
+#if II_COMP_FLAG
+            sequence_control_set_ptr->seq_header.enable_interintra_compound = (sequence_control_set_ptr->static_config.encoder_bit_depth == EB_10BIT ) ? 0 :
+                                                                              (sequence_control_set_ptr->static_config.enc_mode == ENC_M0) ? 1 : 0;
+#endif
             // Set compound mode      Settings
             // 0                 OFF: No compond mode search : AVG only
             // 1                 ON: full
@@ -668,7 +664,6 @@ void* resource_coordination_kernel(void *input_ptr)
                 sequence_control_set_ptr->seq_header.order_hint_info.enable_jnt_comp = 0;
                 sequence_control_set_ptr->seq_header.enable_masked_compound = 0;
             }
-#endif
             // Sep PM mode
             sequence_control_set_ptr->pm_mode = sequence_control_set_ptr->input_resolution < INPUT_SIZE_4K_RANGE ?
                 PM_MODE_2 :
@@ -790,10 +785,8 @@ void* resource_coordination_kernel(void *input_ptr)
             signal_derivation_pre_analysis_oq(
                 sequence_control_set_ptr,
                 picture_control_set_ptr);
-#if QPS_TUNING
             picture_control_set_ptr->filtered_sse = 0;
             picture_control_set_ptr->filtered_sse_uv = 0;
-#endif
             // Rate Control
             // Set the ME Distortion and OIS Historgrams to zero
             if (sequence_control_set_ptr->static_config.rate_control_mode) {
@@ -859,6 +852,41 @@ void* resource_coordination_kernel(void *input_ptr)
                 eb_post_full_object(outputWrapperPtr);
             }
             prevPictureControlSetWrapperPtr = picture_control_set_wrapper_ptr;
+
+            set_tile_info(picture_control_set_ptr);
+            if(sequence_control_set_ptr->static_config.unrestricted_motion_vector == 0)
+            {
+                struct PictureParentControlSet     *ppcs_ptr = picture_control_set_ptr;
+                Av1Common *const cm = ppcs_ptr->av1_cm;
+                uint8_t picture_width_in_sb = (uint8_t)((sequence_control_set_ptr->seq_header.max_frame_width + sequence_control_set_ptr->sb_size_pix - 1) / sequence_control_set_ptr->sb_size_pix);
+                int tile_row, tile_col;
+                uint32_t  x_lcu_index,  y_lcu_index;
+                const int tile_cols = cm->tiles_info.tile_cols;
+                const int tile_rows = cm->tiles_info.tile_rows;
+                TileInfo tile_info;
+                //Tile Loop
+                for (tile_row = 0; tile_row < tile_rows; tile_row++)
+                {
+                    eb_av1_tile_set_row(&tile_info, ppcs_ptr, tile_row);
+
+                    for (tile_col = 0; tile_col < tile_cols; tile_col++)
+                    {
+                        eb_av1_tile_set_col(&tile_info, ppcs_ptr, tile_col);
+
+                        for (y_lcu_index = cm->tiles_info.tile_row_start_sb[tile_row]; y_lcu_index < (uint32_t)cm->tiles_info.tile_row_start_sb[tile_row + 1]; ++y_lcu_index)
+                        {
+                            for (x_lcu_index = cm->tiles_info.tile_col_start_sb[tile_col]; x_lcu_index < (uint32_t)cm->tiles_info.tile_col_start_sb[tile_col + 1]; ++x_lcu_index)
+                            {
+                                int sb_index = (uint16_t)(x_lcu_index + y_lcu_index * picture_width_in_sb);
+                                sequence_control_set_ptr->sb_params_array[sb_index].tile_start_x = 4 * tile_info.mi_col_start;
+                                sequence_control_set_ptr->sb_params_array[sb_index].tile_end_x   = 4 * tile_info.mi_col_end;
+                                sequence_control_set_ptr->sb_params_array[sb_index].tile_start_y = 4 * tile_info.mi_row_start;
+                                sequence_control_set_ptr->sb_params_array[sb_index].tile_end_y   = 4 * tile_info.mi_row_end;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

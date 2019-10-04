@@ -62,6 +62,17 @@ extern "C" {
     } LpfPickMethod;
 #endif
 
+    typedef enum EDGE_DIR { VERT_EDGE = 0, HORZ_EDGE = 1, NUM_EDGE_DIRS } EDGE_DIR;
+
+    typedef struct AV1_DEBLOCKING_PARAMETERS {
+        // length of the filter applied to the outer edge
+        uint32_t filter_length;
+        // deblocking limits
+        const uint8_t *lim;
+        const uint8_t *mblim;
+        const uint8_t *hev_thr;
+    } AV1_DEBLOCKING_PARAMETERS;
+
     void set_qp_array_based_on_cu(
         PictureControlSet *picture_control_set_ptr,          //input parameter
         uint32_t               cuPos_x,                       //input parameter, sample-based horizontal picture-wise locatin of the CU
@@ -212,6 +223,7 @@ extern "C" {
     void aom_lpf_vertical_4_dual_c(uint8_t *s, int32_t pitch, const uint8_t *blimit0, const uint8_t *limit0, const uint8_t *thresh0, const uint8_t *blimit1, const uint8_t *limit1, const uint8_t *thresh1);
 #define aom_lpf_vertical_4_dual aom_lpf_vertical_4_dual_c
 
+    void aom_lpf_vertical_6_c(uint8_t *s, int32_t pitch, const uint8_t *blimit, const uint8_t *limit, const uint8_t *thresh);
     void aom_lpf_vertical_6_sse2(uint8_t *s, int32_t pitch, const uint8_t *blimit, const uint8_t *limit, const uint8_t *thresh);
 #define aom_lpf_vertical_6 aom_lpf_vertical_6_sse2
 

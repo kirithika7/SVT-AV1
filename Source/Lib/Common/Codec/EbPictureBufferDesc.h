@@ -299,6 +299,7 @@ extern "C" {
         uint16_t          bot_padding;
         EbBool            split_mode;         //ON: allocate 8bit data seperately from nbit data
         EbBool            down_sampled_filtered;
+        uint8_t           mfmv;
     } EbPictureBufferDescInitData;
 
     /**************************************

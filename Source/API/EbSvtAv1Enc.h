@@ -99,6 +99,9 @@ typedef struct EbSvtAv1EncConfiguration
      *
      * Default is 0. */
     uint32_t                 source_height;
+
+    uint32_t render_width, render_height;
+
     /* The frequecy of images being displayed. If the number is less than 1000,
      * the input frame rate is an integer number between 1 and 60, else the input
      * number is in Q16 format, shifted by 16 bits, where max allowed is 240 fps.
@@ -146,13 +149,6 @@ typedef struct EbSvtAv1EncConfiguration
      *
      * Default is 0. */
     uint64_t                 frames_to_be_encoded;
-
-    /* The visual quality knob that allows the use of adaptive quantization
-     * within the picture and enables visual quality algorithms that improve the
-     * sharpness of the background. Only available for 4k resolution and
-     *
-     * Default is 0. */
-    EbBool                   improve_sharpness;
 
     /* Super block size for motion estimation
     *
@@ -354,6 +350,14 @@ typedef struct EbSvtAv1EncConfiguration
     *
     * Default is 60. */
     int32_t                  injector_frame_rate;
+
+    /* Flag to constrain motion vectors.
+     *
+     * 1: Motion vectors are allowed to point outside frame boundary.
+     * 0: Motion vectors are NOT allowed to point outside frame boundary.
+     *
+     * Default is 1. */
+    uint8_t                  unrestricted_motion_vector;
 
     // Threads management
 

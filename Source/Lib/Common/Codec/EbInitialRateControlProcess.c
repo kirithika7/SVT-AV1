@@ -845,21 +845,17 @@ void UpdateBeaInfoOverTime(
 
             if (temporaryPictureControlSetPtr->slice_type == I_SLICE || temporaryPictureControlSetPtr->end_of_sequence_flag)
                 break;
-#if QPS_TUNING
             // Limit the distortion to lower layers 0, 1 and 2 only. Higher layers have close temporal distance and lower distortion that might contaminate the data
             if (temporaryPictureControlSetPtr->temporal_layer_index < MAX((int8_t)picture_control_set_ptr->hierarchical_levels - 1, 2) ) {
-#endif
                 if (lcuIdx == 0)
                     me_dist_pic_count++;
                 me_dist += (temporaryPictureControlSetPtr->slice_type == I_SLICE) ? 0 : (uint64_t)temporaryPictureControlSetPtr->rc_me_distortion[lcuIdx];
-#if QPS_TUNING
             }
             // Store the filtered_sse of next ALT_REF picture in the I slice to be used in QP Scaling
             if (picture_control_set_ptr->slice_type == I_SLICE && picture_control_set_ptr->filtered_sse == 0 && lcuIdx == 0 && temporaryPictureControlSetPtr->temporal_layer_index == 0) {
                 picture_control_set_ptr->filtered_sse = temporaryPictureControlSetPtr->filtered_sse;
                 picture_control_set_ptr->filtered_sse_uv = temporaryPictureControlSetPtr->filtered_sse_uv;
             }
-#endif
             nonMovingIndexOverSlidingWindow += temporaryPictureControlSetPtr->non_moving_index_array[lcuIdx];
 
             // Increment the inputQueueIndex Iterator
@@ -1043,114 +1039,6 @@ EbAuraStatus AuraDetection64x64Gold(
     uint32_t                         x_lcu_index,
     uint32_t                         y_lcu_index
 );
-
-void QpmGatherStatisticsSW(
-    SequenceControlSet        *sequence_control_set_ptr,
-    PictureParentControlSet   *picture_control_set_ptr,
-    uint32_t                       sb_index)
-{
-    uint32_t rasterScanCuIndex;
-    uint32_t                  mdScanCuIndex;
-    uint32_t                  oisSad;
-    uint32_t                  meSad;
-
-    uint8_t                   cu_depth;
-    SbParams sb_params = sequence_control_set_ptr->sb_params_array[sb_index];
-
-    EbBool  use16x16Stat = EB_FALSE;
-    if (use16x16Stat == EB_FALSE)
-    {
-        // 8x8 block loop
-        cu_depth = 3;
-        for (rasterScanCuIndex = RASTER_SCAN_CU_INDEX_8x8_0; rasterScanCuIndex <= RASTER_SCAN_CU_INDEX_8x8_63; rasterScanCuIndex++) {
-            if (sb_params.raster_scan_cu_validity[rasterScanCuIndex]) {
-                mdScanCuIndex = raster_scan_to_md_scan[rasterScanCuIndex];
-
-            OisSbResults        *ois_sb_results_ptr = picture_control_set_ptr->ois_sb_results[sb_index];
-
-            OisCandidate *ois_cu_ptr = ois_sb_results_ptr->ois_candidate_array[mdScanCuIndex];
-            oisSad = ois_cu_ptr[ois_sb_results_ptr->best_distortion_index[mdScanCuIndex]].distortion;
-
-                meSad = picture_control_set_ptr->me_results[sb_index]->me_candidate[rasterScanCuIndex][0].distortion;
-
-                //Keep track of the min,max and sum.
-                picture_control_set_ptr->intra_complexity_min[cu_depth] = oisSad < picture_control_set_ptr->intra_complexity_min[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_min[cu_depth];
-                picture_control_set_ptr->intra_complexity_max[cu_depth] = oisSad > picture_control_set_ptr->intra_complexity_max[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_max[cu_depth];
-                picture_control_set_ptr->intra_complexity_accum[cu_depth] += oisSad;
-
-                picture_control_set_ptr->inter_complexity_min[cu_depth] = meSad < picture_control_set_ptr->inter_complexity_min[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_min[cu_depth];
-                picture_control_set_ptr->inter_complexity_max[cu_depth] = meSad > picture_control_set_ptr->inter_complexity_max[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_max[cu_depth];
-                picture_control_set_ptr->inter_complexity_accum[cu_depth] += meSad;
-                picture_control_set_ptr->processed_leaf_count[cu_depth]++;
-            }
-        }
-    }
-
-    cu_depth = 2;
-    for (rasterScanCuIndex = RASTER_SCAN_CU_INDEX_16x16_0; rasterScanCuIndex <= RASTER_SCAN_CU_INDEX_16x16_15; rasterScanCuIndex++) {
-        if (sb_params.raster_scan_cu_validity[rasterScanCuIndex]) {
-            mdScanCuIndex = raster_scan_to_md_scan[rasterScanCuIndex];
-
-            OisSbResults        *ois_sb_results_ptr = picture_control_set_ptr->ois_sb_results[sb_index];
-            OisCandidate *ois_cu_ptr = ois_sb_results_ptr->ois_candidate_array[mdScanCuIndex];
-            oisSad = ois_cu_ptr[ois_sb_results_ptr->best_distortion_index[mdScanCuIndex]].distortion;
-            meSad = picture_control_set_ptr->me_results[sb_index]->me_candidate[rasterScanCuIndex][0].distortion;
-            //Keep track of the min,max and sum.
-            picture_control_set_ptr->intra_complexity_min[cu_depth] = oisSad < picture_control_set_ptr->intra_complexity_min[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_min[cu_depth];
-            picture_control_set_ptr->intra_complexity_max[cu_depth] = oisSad > picture_control_set_ptr->intra_complexity_max[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_max[cu_depth];
-            picture_control_set_ptr->intra_complexity_accum[cu_depth] += oisSad;
-
-            picture_control_set_ptr->inter_complexity_min[cu_depth] = meSad < picture_control_set_ptr->inter_complexity_min[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_min[cu_depth];
-            picture_control_set_ptr->inter_complexity_max[cu_depth] = meSad > picture_control_set_ptr->inter_complexity_max[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_max[cu_depth];
-            picture_control_set_ptr->inter_complexity_accum[cu_depth] += meSad;
-            picture_control_set_ptr->processed_leaf_count[cu_depth]++;
-        }
-    }
-
-    // 32x32 block loop
-    cu_depth = 1;
-    for (rasterScanCuIndex = RASTER_SCAN_CU_INDEX_32x32_0; rasterScanCuIndex <= RASTER_SCAN_CU_INDEX_32x32_3; rasterScanCuIndex++) {
-        if (sb_params.raster_scan_cu_validity[rasterScanCuIndex]) {
-             mdScanCuIndex = raster_scan_to_md_scan[rasterScanCuIndex];
-
-            OisSbResults        *ois_sb_results_ptr = picture_control_set_ptr->ois_sb_results[sb_index];
-            OisCandidate *ois_cu_ptr = ois_sb_results_ptr->ois_candidate_array[mdScanCuIndex];
-            oisSad = ois_cu_ptr[ois_sb_results_ptr->best_distortion_index[mdScanCuIndex]].distortion;
-            meSad = picture_control_set_ptr->me_results[sb_index]->me_candidate[rasterScanCuIndex][0].distortion;
-
-            //Keep track of the min,max and sum.
-            picture_control_set_ptr->intra_complexity_min[cu_depth] = oisSad < picture_control_set_ptr->intra_complexity_min[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_min[cu_depth];
-            picture_control_set_ptr->intra_complexity_max[cu_depth] = oisSad > picture_control_set_ptr->intra_complexity_max[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_max[cu_depth];
-            picture_control_set_ptr->intra_complexity_accum[cu_depth] += oisSad;
-
-            picture_control_set_ptr->inter_complexity_min[cu_depth] = meSad < picture_control_set_ptr->inter_complexity_min[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_min[cu_depth];
-            picture_control_set_ptr->inter_complexity_max[cu_depth] = meSad > picture_control_set_ptr->inter_complexity_max[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_max[cu_depth];
-            picture_control_set_ptr->inter_complexity_accum[cu_depth] += meSad;
-            picture_control_set_ptr->processed_leaf_count[cu_depth]++;
-        }
-    }
-
-    // 64x64 block loop
-    cu_depth = 0;
-    if (sb_params.raster_scan_cu_validity[RASTER_SCAN_CU_INDEX_64x64]) {
-            mdScanCuIndex = 0;
-
-            OisSbResults        *ois_sb_results_ptr = picture_control_set_ptr->ois_sb_results[sb_index];
-            OisCandidate *ois_cu_ptr = ois_sb_results_ptr->ois_candidate_array[mdScanCuIndex];
-            oisSad = ois_cu_ptr[ois_sb_results_ptr->best_distortion_index[mdScanCuIndex]].distortion;
-        meSad = picture_control_set_ptr->me_results[sb_index]->me_candidate[rasterScanCuIndex][0].distortion;
-
-        //Keep track of the min,max and sum.
-        picture_control_set_ptr->intra_complexity_min[cu_depth] = oisSad < picture_control_set_ptr->intra_complexity_min[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_min[cu_depth];
-        picture_control_set_ptr->intra_complexity_max[cu_depth] = oisSad > picture_control_set_ptr->intra_complexity_max[cu_depth] ? oisSad : picture_control_set_ptr->intra_complexity_max[cu_depth];
-        picture_control_set_ptr->intra_complexity_accum[cu_depth] += oisSad;
-
-        picture_control_set_ptr->inter_complexity_min[cu_depth] = meSad < picture_control_set_ptr->inter_complexity_min[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_min[cu_depth];
-        picture_control_set_ptr->inter_complexity_max[cu_depth] = meSad > picture_control_set_ptr->inter_complexity_max[cu_depth] ? meSad : picture_control_set_ptr->inter_complexity_max[cu_depth];
-        picture_control_set_ptr->inter_complexity_accum[cu_depth] += meSad;
-        picture_control_set_ptr->processed_leaf_count[cu_depth]++;
-    }
-}
 
 /******************************************************
 Input   : variance
@@ -1366,84 +1254,6 @@ void* initial_rate_control_kernel(void *input_ptr)
             StationaryEdgeOverUpdateOverTimeLcuPart1(
                 sequence_control_set_ptr,
                 picture_control_set_ptr);
-
-            if (sequence_control_set_ptr->static_config.improve_sharpness) {
-                uint32_t sb_index;
-                uint8_t cu_depth;
-
-                // QPM statistics init
-                for (cu_depth = 0; cu_depth < 4; ++cu_depth) {
-                    picture_control_set_ptr->intra_complexity_min[cu_depth] = ~0u;
-                    picture_control_set_ptr->intra_complexity_max[cu_depth] = 0;
-                    picture_control_set_ptr->intra_complexity_accum[cu_depth] = 0;
-                    picture_control_set_ptr->intra_complexity_avg[cu_depth] = 0;
-
-                    picture_control_set_ptr->inter_complexity_min[cu_depth] = ~0u;
-                    picture_control_set_ptr->inter_complexity_max[cu_depth] = 0;
-                    picture_control_set_ptr->inter_complexity_accum[cu_depth] = 0;
-                    picture_control_set_ptr->inter_complexity_avg[cu_depth] = 0;
-
-                    picture_control_set_ptr->processed_leaf_count[cu_depth] = 0;
-                }
-
-                for (sb_index = 0; sb_index < picture_control_set_ptr->sb_total_count; sb_index++) {
-                    QpmGatherStatisticsSW(
-                        sequence_control_set_ptr,
-                        picture_control_set_ptr,
-                        sb_index);
-                }
-
-                picture_control_set_ptr->intra_complexity_min_pre = picture_control_set_ptr->intra_complexity_min[0];
-                picture_control_set_ptr->intra_complexity_max_pre = picture_control_set_ptr->intra_complexity_max[0];
-                picture_control_set_ptr->inter_complexity_min_pre = picture_control_set_ptr->inter_complexity_min[0];
-                picture_control_set_ptr->inter_complexity_max_pre = picture_control_set_ptr->inter_complexity_max[0];
-
-                EbBool  use16x16Stat = EB_FALSE;
-
-                uint32_t totDepths = use16x16Stat ? 3 : 4;
-
-                for (cu_depth = 0; cu_depth < totDepths; ++cu_depth) {
-                    picture_control_set_ptr->intra_complexity_avg[cu_depth] = picture_control_set_ptr->intra_complexity_accum[cu_depth] / picture_control_set_ptr->processed_leaf_count[cu_depth];
-                    picture_control_set_ptr->inter_complexity_avg[cu_depth] = picture_control_set_ptr->inter_complexity_accum[cu_depth] / picture_control_set_ptr->processed_leaf_count[cu_depth];
-
-                    int32_t intra_min_distance = ABS(((int32_t)picture_control_set_ptr->intra_complexity_min[cu_depth] - (int32_t)picture_control_set_ptr->intra_complexity_avg[cu_depth]));
-                    int32_t intra_max_distance = ((int32_t)picture_control_set_ptr->intra_complexity_max[cu_depth] - (int32_t)picture_control_set_ptr->intra_complexity_avg[cu_depth]);
-
-                    // Adjust complexity bounds.
-                    if (intra_min_distance < intra_max_distance) {
-                        intra_max_distance = intra_min_distance;
-                        picture_control_set_ptr->intra_complexity_max[cu_depth] = picture_control_set_ptr->intra_complexity_avg[cu_depth] + intra_min_distance;
-                        intra_min_distance = 0 - intra_min_distance;
-                    }
-                    else {
-                        intra_min_distance = 0 - intra_max_distance;
-                        picture_control_set_ptr->intra_complexity_min[cu_depth] = picture_control_set_ptr->intra_complexity_avg[cu_depth] - intra_max_distance;
-                    }
-
-                    int32_t inter_min_distance = 0;
-                    int32_t inter_max_distance = 0;
-                    if (picture_control_set_ptr->slice_type != I_SLICE) {
-                        inter_min_distance = ABS(((int32_t)picture_control_set_ptr->inter_complexity_min[cu_depth] - (int32_t)picture_control_set_ptr->inter_complexity_avg[cu_depth]));
-                        inter_max_distance = ((int32_t)picture_control_set_ptr->inter_complexity_max[cu_depth] - (int32_t)picture_control_set_ptr->inter_complexity_avg[cu_depth]);
-                    }
-
-                    // Adjust complexity bounds.
-                    if (inter_min_distance < inter_max_distance) {
-                        inter_max_distance = inter_min_distance;
-                        picture_control_set_ptr->inter_complexity_max[cu_depth] = picture_control_set_ptr->inter_complexity_avg[cu_depth] + inter_min_distance;
-                        inter_min_distance = 0 - inter_min_distance;
-                    }
-                    else {
-                        inter_min_distance = 0 - inter_max_distance;
-                        picture_control_set_ptr->inter_complexity_min[cu_depth] = picture_control_set_ptr->inter_complexity_avg[cu_depth] - inter_max_distance;
-                    }
-
-                    picture_control_set_ptr->intra_min_distance[cu_depth] = intra_min_distance;
-                    picture_control_set_ptr->intra_max_distance[cu_depth] = intra_max_distance;
-                    picture_control_set_ptr->inter_min_distance[cu_depth] = inter_min_distance;
-                    picture_control_set_ptr->inter_max_distance[cu_depth] = inter_max_distance;
-                }
-            }
 
             moveSlideWondowFlag = EB_TRUE;
             while (moveSlideWondowFlag) {

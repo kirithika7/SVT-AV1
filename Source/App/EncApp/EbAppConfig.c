@@ -6,12 +6,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "EbAppString.h"
 #include "EbAppConfig.h"
 #include "EbAppInputy4m.h"
 
 #ifdef _WIN32
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -85,7 +87,6 @@
 // --- end: ALTREF_FILTERING_SUPPORT
 #define HBD_MD_ENABLE_TOKEN             "-hbd-md"
 #define CONSTRAINED_INTRA_ENABLE_TOKEN  "-constrd-intra"
-#define IMPROVE_SHARPNESS_TOKEN         "-sharp"
 #define HDR_INPUT_TOKEN                 "-hdr"
 #define RATE_CONTROL_ENABLE_TOKEN       "-rc"
 #define TARGET_BIT_RATE_TOKEN           "-tbr"
@@ -104,6 +105,7 @@
 #define ASM_TYPE_TOKEN                  "-asm"
 #define THREAD_MGMNT                    "-lp"
 #define TARGET_SOCKET                   "-ss"
+#define UNRESTRICTED_MOTION_VECTOR      "-umv"
 #define CONFIG_FILE_COMMENT_CHAR    '#'
 #define CONFIG_FILE_NEWLINE_CHAR    '\n'
 #define CONFIG_FILE_RETURN_CHAR     '\r'
@@ -122,24 +124,40 @@
 /**********************************
  * Set Cfg Functions
  **********************************/
-static void SetCfgInputFile                     (const char *value, EbConfig *cfg)
+static void SetCfgInputFile(const char *filename, EbConfig *cfg)
 {
-    if (cfg->input_file && cfg->input_file != stdin)
+    if (cfg->input_file && !cfg->input_file_is_fifo)
         fclose(cfg->input_file);
-    if (!strcmp(value, "stdin"))
+
+    if (!filename) {
+        cfg->input_file = NULL;
+        return;
+    }
+
+    if (!strcmp(filename, "stdin"))
         cfg->input_file = stdin;
     else
-        FOPEN(cfg->input_file, value, "rb");
-    /* if input is a YUV4MPEG2 (y4m) file, read header and parse parameters */
-    if(cfg->input_file!=NULL){
-        if(check_if_y4m(cfg) == EB_TRUE)
-            cfg->y4m_input = EB_TRUE;
-        else
-            cfg->y4m_input = EB_FALSE;
-    }else{
+        FOPEN(cfg->input_file, filename, "rb");
+
+    if (cfg->input_file == NULL) {
         cfg->y4m_input = EB_FALSE;
+        cfg->input_file_is_fifo = EB_FALSE;
+        return;
     }
+
+#ifdef _WIN32
+    cfg->input_file_is_fifo =
+    GetFileType(cfg->input_file) == FILE_TYPE_PIPE;
+#else
+    int fd = fileno(cfg->input_file);
+    struct stat statbuf;
+    fstat(fd, &statbuf);
+    cfg->input_file_is_fifo = S_ISFIFO(statbuf.st_mode);
+#endif
+
+    cfg->y4m_input = check_if_y4m(cfg);
 };
+
 static void SetCfgStreamFile                    (const char *value, EbConfig *cfg)
 {
     if (cfg->bitstream_file) { fclose(cfg->bitstream_file); }
@@ -234,7 +252,6 @@ static void SetEnableOverlays                   (const char *value, EbConfig *cf
 // --- end: ALTREF_FILTERING_SUPPORT
 static void SetEnableHBDModeDecision            (const char *value, EbConfig *cfg) {cfg->enable_hbd_mode_decision = (EbBool)strtoul(value, NULL, 0);};
 static void SetEnableConstrainedIntra           (const char *value, EbConfig *cfg) {cfg->constrained_intra                                             = (EbBool)strtoul(value, NULL, 0);};
-static void SetImproveSharpness                 (const char *value, EbConfig *cfg) {cfg->improve_sharpness               = (EbBool)strtol(value,  NULL, 0);};
 static void SetHighDynamicRangeInput            (const char *value, EbConfig *cfg) {cfg->high_dynamic_range_input            = strtol(value,  NULL, 0);};
 static void SetProfile                          (const char *value, EbConfig *cfg) {cfg->profile                          = strtol(value,  NULL, 0);};
 static void SetTier                             (const char *value, EbConfig *cfg) {cfg->tier                             = strtol(value,  NULL, 0);};
@@ -258,6 +275,7 @@ static void SetLatencyMode                      (const char *value, EbConfig *cf
 static void SetAsmType                          (const char *value, EbConfig *cfg)  {cfg->asm_type                   = (uint32_t)strtoul(value, NULL, 0);};
 static void SetLogicalProcessors                (const char *value, EbConfig *cfg)  {cfg->logical_processors         = (uint32_t)strtoul(value, NULL, 0);};
 static void SetTargetSocket                     (const char *value, EbConfig *cfg)  {cfg->target_socket              = (int32_t)strtol(value, NULL, 0);};
+static void SetUnrestrictedMotionVector         (const char *value, EbConfig *cfg)  {cfg->unrestricted_motion_vector = (EbBool)strtol(value, NULL, 0);};
 
 enum cfg_type{
     SINGLE_INPUT,   // Configuration parameters that have only 1 value input
@@ -349,9 +367,9 @@ config_entry_t config_entry[] = {
     { SINGLE_INPUT, THREAD_MGMNT, "logicalProcessors", SetLogicalProcessors },
     { SINGLE_INPUT, TARGET_SOCKET, "TargetSocket", SetTargetSocket },
     // Optional Features
+    { SINGLE_INPUT, UNRESTRICTED_MOTION_VECTOR, "UnrestrictedMotionVector", SetUnrestrictedMotionVector },
 
 //    { SINGLE_INPUT, BITRATE_REDUCTION_TOKEN, "bit_rate_reduction", SetBitRateReduction },
-    { SINGLE_INPUT, IMPROVE_SHARPNESS_TOKEN,"ImproveSharpness", SetImproveSharpness},
     { SINGLE_INPUT, HDR_INPUT_TOKEN, "HighDynamicRangeInput", SetHighDynamicRangeInput },
     // Latency
     { SINGLE_INPUT, INJECTOR_TOKEN, "Injector", SetInjector },
@@ -425,7 +443,7 @@ void eb_config_ctor(EbConfig *config_ptr)
     config_ptr->max_qp_allowed                       = 63;
     config_ptr->min_qp_allowed                       = 10;
 
-    config_ptr->enable_adaptive_quantization         = EB_FALSE;
+    config_ptr->enable_adaptive_quantization         = 2;
     config_ptr->base_layer_switch_mode               = 0;
     config_ptr->enc_mode                              = MAX_ENC_PRESET;
     config_ptr->intra_period                          = -2;
@@ -472,8 +490,6 @@ void eb_config_ctor(EbConfig *config_ptr)
 
     // Thresholds
     config_ptr->high_dynamic_range_input             = 0;
-
-    config_ptr->improve_sharpness                    = 0;
 
     // Annex A parameters
     config_ptr->profile                              = 0;
@@ -523,6 +539,7 @@ void eb_config_ctor(EbConfig *config_ptr)
     config_ptr->processed_byte_count                   = 0;
     config_ptr->tile_rows                            = 0;
     config_ptr->tile_columns                         = 0;
+    config_ptr->unrestricted_motion_vector           = EB_TRUE;
 
     config_ptr->byte_count_since_ivf                 = 0;
     config_ptr->ivf_count                            = 0;
@@ -549,7 +566,8 @@ void eb_config_dtor(EbConfig *config_ptr)
     }
 
     if (config_ptr->input_file) {
-        if (config_ptr->input_file != stdin) fclose(config_ptr->input_file);
+        if (!config_ptr->input_file_is_fifo)
+            fclose(config_ptr->input_file);
         config_ptr->input_file = (FILE *) NULL;
     }
 
@@ -982,10 +1000,10 @@ int32_t ComputeFramesToBeEncoded(
     uint64_t currLoc;
 
     if (config->input_file) {
-        currLoc = ftello64(config->input_file); // get current fp location
-        fseeko64(config->input_file, 0L, SEEK_END);
-        fileSize = ftello64(config->input_file);
-        fseeko64(config->input_file, currLoc, SEEK_SET); // seek back to that location
+        currLoc = ftello(config->input_file); // get current fp location
+        fseeko(config->input_file, 0L, SEEK_END);
+        fileSize = ftello(config->input_file);
+        fseeko(config->input_file, currLoc, SEEK_SET); // seek back to that location
     }
 
     frameSize = config->input_padded_width * config->input_padded_height; // Luma
@@ -1234,8 +1252,8 @@ EbErrorType read_command_line(
 
                 // Assuming no errors, add padding to width and height
                 if (return_errors[index] == EB_ErrorNone) {
-                    configs[index]->input_padded_width  = configs[index]->source_width;
-                    configs[index]->input_padded_height = configs[index]->source_height;
+                    configs[index]->input_padded_width = configs[index]->source_width + configs[index]->source_width % 8;
+                    configs[index]->input_padded_height = configs[index]->source_height + configs[index]->source_width % 8;
                 }
 
                 // Assuming no errors, set the frames to be encoded to the number of frames in the input yuv

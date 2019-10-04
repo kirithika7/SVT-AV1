@@ -13752,7 +13752,6 @@ extern "C" {
         // Rate Control
         uint8_t                               picture_qp;
         uint8_t                               dif_cu_delta_qp_depth;
-        uint8_t                               use_delta_qp;
 
         // SB Array
         uint8_t                               sb_max_depth;
@@ -13762,9 +13761,6 @@ extern "C" {
         uint8_t                              *qp_array;
         uint16_t                              qp_array_stride;
         uint32_t                              qp_array_size;
-        // QP Assignment
-        uint8_t                               prev_coded_qp;
-        uint8_t                               prev_quant_group_coded_qp;
         // EncDec Entropy Coder (for rate estimation)
         EntropyCoder                       *coeff_est_entropy_coder_ptr;
 
@@ -13860,11 +13856,11 @@ extern "C" {
         FRAME_CONTEXT * ec_ctx_array;
         struct MdRateEstimationContext* rate_est_array;
         uint8_t  update_cdf;
-#if ENABLE_CDF_UPDATE
         FRAME_CONTEXT           ref_frame_context[REF_FRAMES];
         EbWarpedMotionParams    ref_global_motion[TOTAL_REFS_PER_FRAME];
         struct MdRateEstimationContext *md_rate_estimation_array;
-#endif
+        int8_t ref_frame_side[REF_FRAMES];
+        TPL_MV_REF  *tpl_mvs;
     } PictureControlSet;
 
     // To optimize based on the max input size
@@ -13879,11 +13875,12 @@ extern "C" {
         uint8_t   height;
         uint8_t   is_complete_sb;
         EbBool    raster_scan_cu_validity[CU_MAX_COUNT];
-#if !INCOMPLETE_SB_FIX
-        EbBool    block_is_inside_md_scan[BLOCK_MAX_COUNT_SB_128];
-#endif
         uint8_t   potential_logo_sb;
         uint8_t   is_edge_sb;
+        uint32_t  tile_start_x;
+        uint32_t  tile_start_y;
+        uint32_t  tile_end_x;
+        uint32_t  tile_end_y;
     } SbParams;
 
     typedef struct SbGeom
@@ -13896,9 +13893,7 @@ extern "C" {
         uint8_t    height;
         uint8_t    is_complete_sb;
         EbBool     block_is_inside_md_scan[BLOCK_MAX_COUNT_SB_128];
-#if INCOMPLETE_SB_FIX
         EbBool     block_is_allowed[BLOCK_MAX_COUNT_SB_128];
-#endif
     } SbGeom;
 
     typedef struct CuStat
@@ -13960,11 +13955,9 @@ extern "C" {
         EbBool                                eos_coming;
         uint8_t                               picture_qp;
         uint64_t                              picture_number;
-#if COMP_MODE
         uint8_t                               wedge_mode;
         uint32_t                             cur_order_hint;
         uint32_t                             ref_order_hint[7];
-#endif
         EbPicnoiseClass                       pic_noise_class;
         EB_SLICE                              slice_type;
         uint8_t                               pred_struct_index;
@@ -14036,7 +14029,8 @@ extern "C" {
         uint8_t                              *sharp_edge_sb_flag;
         EbBool                                logo_pic_flag;                    // used by EncDecProcess()
         uint16_t                              non_moving_index_average;            // used by ModeDecisionConfigurationProcess()
-
+        int16_t                               non_moving_index_min_distance;
+        int16_t                               non_moving_index_max_distance;
         uint16_t                              qp_scaling_average_complexity;
         uint8_t                               grass_percentage_in_picture;
         uint8_t                               percentage_of_edgein_light_background;
@@ -14121,9 +14115,7 @@ extern "C" {
         uint8_t                               intra_pred_mode;
         uint8_t                               skip_sub_blks;
         uint8_t                               atb_mode;
-#if ENABLE_CDF_UPDATE
         uint8_t                               frame_end_cdf_update_mode; // mm-signal: 0: OFF, 1:ON
-#endif
         //**********************************************************************************************************//
         Av1RpsNode                          av1_ref_signal;
         EbBool                                has_show_existing;
@@ -14166,7 +14158,7 @@ extern "C" {
 #if ADD_DELTA_QP_SUPPORT
         // Resolution of delta quant
         int32_t                               num_tg;
-        int32_t                               monochrome = 0; //NM - hadcoded to zero. to be set to one to support the coding of monochrome contents.
+        int32_t                               monochrome;
         int32_t                               prev_qindex;
         // Since actual frame level loop filtering level value is not available
         // at the beginning of the tile (only available during actual filtering)
@@ -14215,7 +14207,6 @@ extern "C" {
         uint8_t                               tx_search_level;
         uint64_t                              tx_weight;
         uint8_t                               tx_search_reduced_set;
-        uint8_t                               skip_tx_search;
         uint8_t                               interpolation_search_level;
         uint8_t                               nsq_search_level;
         uint8_t                               nsq_max_shapes_md; // max number of shapes to be tested in MD
@@ -14241,22 +14232,19 @@ extern "C" {
         int16_t                               tf_segments_total_count;
         uint8_t                               tf_segments_column_count;
         uint8_t                               tf_segments_row_count;
-#if ALTREF_TF_ADAPTIVE_WINDOW_SIZE
         uint8_t                               past_altref_nframes;
         uint8_t                               future_altref_nframes;
-#else
-        uint8_t                               altref_nframes;
-#endif
         EbBool                                temporal_filtering_on;
-#if QPS_TUNING
         uint64_t                              filtered_sse; // the normalized SSE between filtered and original alt_ref with 8 bit precision.
                                                             // I Slice has the value of the next ALT_REF picture
         uint64_t                              filtered_sse_uv;
-#endif
         FrameHeader                           frm_hdr;
-#if COMP_MODE
-        MD_COMP_TYPE                            compound_types_to_try;
-        uint8_t                                 compound_mode;
+        MD_COMP_TYPE                          compound_types_to_try;
+        uint8_t                               compound_mode;
+        uint8_t                               prune_unipred_at_me;
+        uint8_t                              coeff_based_skip_atb;
+#if II_COMP_FLAG
+        uint8_t                              enable_inter_intra;
 #endif
     } PictureParentControlSet;
 
@@ -14288,9 +14276,8 @@ extern "C" {
         uint8_t                            mrp_mode;
         uint8_t                            cdf_mode;
         uint8_t                            nsq_present;
-#if INCOMPLETE_SB_FIX
         uint8_t                            over_boundary_block_mode;
-#endif
+        uint8_t                            mfmv;
     } PictureControlSetInitData;
 
     typedef struct Av1Comp

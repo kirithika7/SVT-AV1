@@ -29,6 +29,8 @@ extern "C" {
 /** Maximum picture buffers needed **/
 #define MAX_PIC_BUFS (REF_FRAMES + 1 + DEC_MAX_NUM_FRM_PRLL)
 
+/*Optimisation of Coeff Buffer in Single Thread*/
+#define SINGLE_THRD_COEFF_BUF_OPT   1
 /** Picture Structure **/
 typedef struct EbDecPicBuf {
 
@@ -41,6 +43,19 @@ typedef struct EbDecPicBuf {
 
     uint32_t            order_hint;
     uint32_t            ref_order_hints[INTER_REFS_PER_FRAME];
+    FrameType           frame_type;
+
+    /*!< Height of the frame in luma samples */
+    uint16_t            frame_width;
+    /* Following 4 prms needed for frame_size_with_refs */
+    /*!< Height of the frame in luma samples */
+    uint16_t            frame_height;
+    /*!< Render width of the frame in luma samples */
+    uint16_t            render_width;
+    /*!< Render height of the frame in luma samples */
+    uint16_t            render_height;
+    /*!< Width of Upscaled SuperRes */
+    uint16_t            superres_upscaled_width;
 
     EbPictureBufferDesc *ps_pic_buf;
 
@@ -50,9 +65,14 @@ typedef struct EbDecPicBuf {
 
     /* MV at 8x8 lvl */
     TemporalMvRef       *mvs;
+
     /* seg map */
+    uint8_t *segment_maps;
+    SegmentationParams seg_params;
+
     /* order hint */
     /* film grain */
+    aom_film_grain_t    film_grain_params;
 
 } EbDecPicBuf;
 
@@ -69,6 +89,9 @@ typedef struct CurFrameBuf {
     int8_t          *cdef_strength;
     int32_t         *delta_q;
     int32_t         *delta_lf;
+
+    // Loop Restoration Unit
+    RestorationUnitInfo    *lr_unit[MAX_MB_PLANE];
 
     /* Tile Map at SB level : TODO. Can be removed? */
     uint8_t         *tile_map_sb;
@@ -159,6 +182,10 @@ typedef struct EbDecHandle {
     void   *pv_parse_ctxt;
 
     void   *pv_dec_mod_ctxt;
+
+    void   *pv_lf_ctxt;
+
+    void   *pv_lr_ctxt;
 
     /** Pointer to Picture manager structure **/
     void   *pv_pic_mgr;

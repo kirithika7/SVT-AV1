@@ -129,6 +129,7 @@ The encoder parameters present in the `Sample.cfg` file are listed in this table
 | **IntraRefreshType** | -irefresh-type | [1 – 2] | 1 | 1: CRA (Open GOP)2: IDR (Closed GOP) |
 | **QP** | -q | [0 - 63] | 50 | Quantization parameter used when RateControl is set to 0 |
 | **RateControlMode** | -rc | [0 - 3] | 0 | 0 = CQP , 1 = ABR , 2 = ABR , 3 = CVBR |
+| **AdaptiveQuantization** | -adaptive-quantization | [0 - 2] | 0 | 0 = OFF , 1 = variance base using segments , 2 = Deltaq pred efficiency (default) |
 | **UseDefaultMeHme** | -use-default-me-hme | [0 - 1] | 1 | 0 : Overwrite Default ME HME parameters1 : Use default ME HME parameters, dependent on width and height |
 | **HME** | -hme | [0 - 1] | 1 | Enable HME, 0 = OFF, 1 = ON |
 | **HMELevel0** | -hme-l0 | [0 - 1] | 1 | Enable HME Level 0 , 0 = OFF, 1 = ON |
@@ -156,9 +157,9 @@ The encoder parameters present in the `Sample.cfg` file are listed in this table
 | **LogicalProcessorNumber** | -lp | [0, total number of logical processor] | 0 | The number of logical processor which encoder threads run on.Refer to Appendix A.1 |
 | **TargetSocket** | -ss | [-1,1] | -1 | For dual socket systems, this can specify which socket the encoder runs on.Refer to Appendix A.1 |
 | **ReconFile** | -o | any string | null | Recon file path. Optional output of recon. |
-| **ImproveSharpness** | -sharp | [0-1] | 0 | Improve sharpness (0= OFF, 1=ON ) |
 | **TileRow** | -tile-rows | [0-6] | 0 | log2 of tile rows |
 | **TileCol** | -tile-columns | [0-6] | 0 | log2 of tile columns |
+| **UnrestrictedMotionVector** | -umv | [0-1] | 1 | Enables or disables unrestriced motion vectors, 0 = OFF(motion vectors are constrained within tile boundary), 1 = ON. For MCTS support, set -umv 0 |
 
 ## Appendix A Encoder Parameters
 

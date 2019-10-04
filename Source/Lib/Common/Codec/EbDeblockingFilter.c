@@ -259,6 +259,23 @@ void aom_lpf_horizontal_6_c(uint8_t *s, int32_t p, const uint8_t *blimit,
     }
 }
 
+void aom_lpf_vertical_6_c(uint8_t *s, int pitch, const uint8_t *blimit,
+    const uint8_t *limit, const uint8_t *thresh)
+{
+    int i;
+    int count = 4;
+
+    for (i = 0; i < count; ++i) {
+        const uint8_t p2 = s[-3], p1 = s[-2], p0 = s[-1];
+        const uint8_t q0 = s[0], q1 = s[1], q2 = s[2];
+        const int8_t mask =
+            filter_mask3_chroma(*limit, *blimit, p2, p1, p0, q0, q1, q2);
+        const int8_t flat = flat_mask3_chroma(1, p2, p1, p0, q0, q1, q2);
+        filter6(mask, *thresh, flat, s - 3, s - 2, s - 1, s, s + 1, s + 2);
+        s += pitch;
+    }
+}
+
 void aom_lpf_horizontal_8_c(uint8_t *s, int32_t p, const uint8_t *blimit,
     const uint8_t *limit, const uint8_t *thresh) {
     int32_t i;
@@ -585,9 +602,7 @@ void aom_highbd_lpf_vertical_8_c(uint16_t *s, int32_t pitch, const uint8_t *blim
 //    { SEG_LVL_ALT_LF_V, SEG_LVL_ALT_LF_V }
 //};
 
-typedef enum EDGE_DIR { VERT_EDGE = 0, HORZ_EDGE = 1, NUM_EDGE_DIRS } EDGE_DIR;
-
-static const int32_t mode_lf_lut[] = {
+const int32_t mode_lf_lut[] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // INTRA_MODES
     1, 1, 0, 1,                             // INTER_MODES (GLOBALMV == 0)
     1, 1, 1, 1, 1, 1, 0, 1  // INTER_COMPOUND_MODES (GLOBAL_GLOBALMV == 0)
@@ -862,15 +877,6 @@ static TxSize get_transform_size(const MacroBlockD *const xd,
     return tx_size;
 }
 
-typedef struct AV1_DEBLOCKING_PARAMETERS {
-    // length of the filter applied to the outer edge
-    uint32_t filter_length;
-    // deblocking limits
-    const uint8_t *lim;
-    const uint8_t *mblim;
-    const uint8_t *hev_thr;
-} AV1_DEBLOCKING_PARAMETERS;
-
 // Return TxSize from get_transform_size(), so it is plane and direction
 // awared
 static TxSize set_lpf_parameters(
@@ -898,11 +904,7 @@ static TxSize set_lpf_parameters(
 
     const int32_t mi_row = scale_vert | ((y << scale_vert) >> MI_SIZE_LOG2);
     const int32_t mi_col = scale_horz | ((x << scale_horz) >> MI_SIZE_LOG2);
-#if INCOMPLETE_SB_FIX
     uint32_t mi_stride = pcs_ptr->mi_stride;
-#else
-    uint32_t mi_stride = pcs_ptr->parent_pcs_ptr->sequence_control_set_ptr->picture_width_in_sb*(BLOCK_SIZE_64 >> MI_SIZE_LOG2);
-#endif
     const int32_t offset = mi_row * mi_stride + mi_col;
     ModeInfo **mi = (pcs_ptr->mi_grid_base + offset);
     //MbModeInfo **mi = cm->mi_grid_visible + mi_row * cm->mi_stride + mi_col;
@@ -1131,11 +1133,7 @@ void eb_av1_filter_block_plane_horz(
     const int32_t dst_stride = plane_ptr->dst.stride;
     const int32_t y_range = scs_ptr->seq_header.sb_size == BLOCK_128X128 ? (MAX_MIB_SIZE >> scale_vert) : (SB64_MIB_SIZE >> scale_vert);
     const int32_t x_range = scs_ptr->seq_header.sb_size == BLOCK_128X128 ? (MAX_MIB_SIZE >> scale_horz) : (SB64_MIB_SIZE >> scale_horz);
-#if INCOMPLETE_SB_FIX
     uint32_t mi_stride = pcs_ptr->mi_stride;
-#else
-    uint32_t mi_stride = pcs_ptr->parent_pcs_ptr->sequence_control_set_ptr->picture_width_in_sb*(BLOCK_SIZE_64 >> MI_SIZE_LOG2);
-#endif
     for (int32_t x = 0; x < x_range; x += col_step) {
         uint8_t *p = dst_ptr + ((x * MI_SIZE) << plane_ptr->is16Bit);
         for (int32_t y = 0; y < y_range;) {

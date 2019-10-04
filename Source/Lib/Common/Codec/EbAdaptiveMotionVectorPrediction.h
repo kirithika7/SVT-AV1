@@ -21,23 +21,6 @@ extern "C" {
     struct ModeDecisionContext;
     struct InterPredictionContext;
 
-    typedef enum TmvpPos
-    {
-        TmvpColocatedBottomRight = 0,
-        TmvpColocatedCenter = 1
-    } TmvpPos;
-
-    // TMVP items corresponding to one LCU
-    typedef struct TmvpUnit
-    {
-        Mv              mv[MAX_NUM_OF_REF_PIC_LIST][MAX_TMVP_CAND_PER_LCU];
-        uint64_t            ref_pic_poc[MAX_NUM_OF_REF_PIC_LIST][MAX_TMVP_CAND_PER_LCU];
-        EbPredDirection  prediction_direction[MAX_TMVP_CAND_PER_LCU];
-        EbBool              availability_flag[MAX_TMVP_CAND_PER_LCU];
-
-        //*Note- list 1 motion info will be added when B-slices are ready
-    } TmvpUnit;
-
     extern EbErrorType clip_mv(
         uint32_t  cu_origin_x,
         uint32_t  cu_origin_y,
@@ -155,6 +138,7 @@ extern "C" {
     int av1_is_dv_valid(const MV dv,
         const MacroBlockD *xd, int mi_row, int mi_col,
         BlockSize bsize, int mib_size_log2);
+    int is_inside_tile_boundary(TileInfo *tile, int16_t mvx, int16_t mvy, int mi_col, int mi_row, BlockSize bsize);
 
 #ifdef __cplusplus
 }

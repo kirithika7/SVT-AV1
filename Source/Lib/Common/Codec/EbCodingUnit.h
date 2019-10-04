@@ -139,6 +139,11 @@ extern "C" {
     static INLINE int32_t av1_is_directional_mode(PredictionMode mode) {
         return mode >= V_PRED && mode <= D67_PRED;
     }
+
+    static INLINE EbBool av1_use_angle_delta(BlockSize bsize) {
+        return bsize >= BLOCK_8X8;
+    }
+
     struct PictureControlSet;
 
     typedef struct MV
@@ -188,16 +193,28 @@ extern "C" {
         // int32_t cfl_alpha_signs;
         //int32_t compound_idx;
         //int32_t comp_group_idx;
-#if COMP_MODE
         int32_t compound_idx;
         int32_t comp_group_idx;
-#endif
         int8_t skip;
         int8_t cdef_strength;
         TxSize tx_size;
         uint8_t inter_tx_size[INTER_TX_SIZE_BUF_LEN];
         uint8_t tx_depth;
+ #if II_COMP_FLAG
+        INTERINTRA_MODE     interintra_mode;
+        uint8_t             use_wedge_interintra;
+        int32_t             interintra_wedge_index;//inter_intra wedge index
+#endif
     } MbModeInfo;
+
+    typedef struct {
+        IntMv mfmv0;
+        uint8_t ref_frame_offset;
+    } TPL_MV_REF;
+    typedef struct {
+        IntMv mv;
+        MvReferenceFrame ref_frame;
+    } MV_REF;
 
     typedef struct ModeInfo {
         MbModeInfo mbmi;
@@ -335,11 +352,9 @@ extern "C" {
     {
         TransformUnit             transform_unit_array[TRANSFORM_UNIT_MAX_COUNT]; // 2-bytes * 21 = 42-bytes
         PredictionUnit            prediction_unit_array[MAX_NUM_OF_PU_PER_CU];    // 35-bytes * 4 = 140 bytes
-#if COMP_MODE
-        INTERINTER_COMPOUND_DATA               interinter_comp;
+        InterInterCompoundData                 interinter_comp;
         uint8_t                                compound_idx;
         uint8_t                                comp_group_idx;
-#endif
         unsigned                    skip_flag_context       : 2;
         unsigned                    prediction_mode_flag    : 2;
         unsigned                    block_has_coeff         : 1;
@@ -392,6 +407,13 @@ extern "C" {
         uint16_t                   *neigh_top_recon_16bit[3];
         uint32_t                    best_d1_blk;
         uint8_t                     tx_depth;
+#if II_COMP_FLAG
+        INTERINTRA_MODE             interintra_mode;
+        uint8_t                     is_interintra_used;
+        uint8_t                     use_wedge_interintra;
+        int32_t                     interintra_wedge_index;
+        int32_t                     ii_wedge_sign;
+#endif
     } CodingUnit;
 
         typedef struct OisCandidate

@@ -33,8 +33,6 @@ typedef struct EntropyCodingContext
     uint32_t                        sb_total_count;
     // Lambda
 #if ADD_DELTA_QP_SUPPORT
-    uint16_t                        qp;
-    uint16_t                        chroma_qp;
 #else
     uint8_t                         qp;
     uint8_t                         chroma_qp;

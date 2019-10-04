@@ -66,7 +66,6 @@ typedef void(*EB_AV1_ENCODE_LOOP_FUNC_PTR)(
     EbAsm                 asm_type,
     uint32_t                  *count_non_zero_coeffs,
     uint32_t                 component_mask,
-    uint32_t                   use_delta_qp,
     uint32_t                 dZoffset,
     uint16_t                 *eob,
     MacroblockPlane       *candidate_plane);
@@ -419,7 +418,6 @@ void encode_pass_tx_search(
     EbAsm                          asm_type,
     uint32_t                       *count_non_zero_coeffs,
     uint32_t                       component_mask,
-    uint32_t                       use_delta_qp,
     uint32_t                       dZoffset,
     uint16_t                       *eob,
     MacroblockPlane                *candidate_plane);
@@ -427,7 +425,7 @@ void encode_pass_tx_search(
 /**********************************************************
 * Encode Loop
 *
-* Summary: Performs a H.265 conformant
+* Summary: Performs an AV1 conformant
 *   Transform, Quantization  and Inverse Quantization of a TU.
 *
 * Inputs:
@@ -458,12 +456,10 @@ static void Av1EncodeLoop(
     EbAsm                 asm_type,
     uint32_t                  *count_non_zero_coeffs,
     uint32_t                 component_mask,
-    uint32_t                   use_delta_qp,
     uint32_t                 dZoffset,
     uint16_t                 *eob,
     MacroblockPlane       *candidate_plane){
     (void)dZoffset;
-    (void)use_delta_qp;
     (void)cb_qp;
 
     //    uint32_t                 chroma_qp = cb_qp;
@@ -508,13 +504,13 @@ static void Av1EncodeLoop(
             residual16bit->stride_y,
             context_ptr->blk_geom->tx_width[cu_ptr->tx_depth][context_ptr->txb_itr],
             context_ptr->blk_geom->tx_height[cu_ptr->tx_depth][context_ptr->txb_itr]);
-        uint8_t  tx_search_skip_fag = (picture_control_set_ptr->parent_pcs_ptr->tx_search_level == TX_SEARCH_ENC_DEC && (picture_control_set_ptr->parent_pcs_ptr->atb_mode == 0 || cu_ptr->prediction_mode_flag == INTER_MODE)) ? get_skip_tx_search_flag(
+        uint8_t  tx_search_skip_flag = (picture_control_set_ptr->parent_pcs_ptr->tx_search_level == TX_SEARCH_ENC_DEC && (picture_control_set_ptr->parent_pcs_ptr->atb_mode == 0 || cu_ptr->prediction_mode_flag == INTER_MODE)) ? get_skip_tx_search_flag(
             context_ptr->blk_geom->sq_size,
             MAX_MODE_COST,
             0,
             1) : 1;
 
-        if (!tx_search_skip_fag) {
+        if (!tx_search_skip_flag) {
                 encode_pass_tx_search(
                     picture_control_set_ptr,
                     context_ptr,
@@ -528,7 +524,6 @@ static void Av1EncodeLoop(
                     asm_type,
                     count_non_zero_coeffs,
                     component_mask,
-                    use_delta_qp,
                     dZoffset,
                     eob,
                     candidate_plane);
@@ -620,13 +615,13 @@ static void Av1EncodeLoop(
             {
                 // 3: Loop over alphas and find the best or choose DC
                 // Use the 1st spot of the candidate buffer to hold cfl settings: (1) to use same kernel as MD for CFL evaluation: cfl_rd_pick_alpha() (toward unification), (2) to avoid dedicated buffers for CFL evaluation @ EP (toward less memory)
-                ModeDecisionCandidateBuffer  *candidateBuffer = &(context_ptr->md_context->candidate_buffer_ptr_array[0][0]);
+                ModeDecisionCandidateBuffer  *candidate_buffer = &(context_ptr->md_context->candidate_buffer_ptr_array[0][0]);
 
                 // Input(s)
-                candidateBuffer->candidate_ptr->type = INTRA_MODE;
-                candidateBuffer->candidate_ptr->intra_luma_mode = cu_ptr->pred_mode;
-                candidateBuffer->candidate_ptr->cfl_alpha_signs = 0;
-                candidateBuffer->candidate_ptr->cfl_alpha_idx = 0;
+                candidate_buffer->candidate_ptr->type = INTRA_MODE;
+                candidate_buffer->candidate_ptr->intra_luma_mode = cu_ptr->pred_mode;
+                candidate_buffer->candidate_ptr->cfl_alpha_signs = 0;
+                candidate_buffer->candidate_ptr->cfl_alpha_idx = 0;
                 context_ptr->md_context->blk_geom = context_ptr->blk_geom;
 
                 EbByte src_pred_ptr;
@@ -634,25 +629,25 @@ static void Av1EncodeLoop(
 
                 // Copy Cb pred samples from ep buffer to md buffer
                 src_pred_ptr = predSamples->buffer_cb + pred_cb_offset;
-                dst_pred_ptr = &(candidateBuffer->prediction_ptr->buffer_cb[scratch_cb_offset]);
+                dst_pred_ptr = &(candidate_buffer->prediction_ptr->buffer_cb[scratch_cb_offset]);
                 for (int i = 0; i < context_ptr->blk_geom->bheight_uv; i++) {
                     memcpy(dst_pred_ptr, src_pred_ptr, context_ptr->blk_geom->bwidth_uv);
                     src_pred_ptr += predSamples->stride_cb;
-                    dst_pred_ptr += candidateBuffer->prediction_ptr->stride_cb;
+                    dst_pred_ptr += candidate_buffer->prediction_ptr->stride_cb;
                 }
 
                 // Copy Cr pred samples from ep buffer to md buffer
                 src_pred_ptr = predSamples->buffer_cr + pred_cr_offset;
-                dst_pred_ptr = &(candidateBuffer->prediction_ptr->buffer_cr[scratch_cr_offset]);
+                dst_pred_ptr = &(candidate_buffer->prediction_ptr->buffer_cr[scratch_cr_offset]);
                 for (int i = 0; i < context_ptr->blk_geom->bheight_uv; i++) {
                     memcpy(dst_pred_ptr, src_pred_ptr, context_ptr->blk_geom->bwidth_uv);
                     src_pred_ptr += predSamples->stride_cr;
-                    dst_pred_ptr += candidateBuffer->prediction_ptr->stride_cr;
+                    dst_pred_ptr += candidate_buffer->prediction_ptr->stride_cr;
                 }
 
                 cfl_rd_pick_alpha(
                     picture_control_set_ptr,
-                    candidateBuffer,
+                    candidate_buffer,
                     sb_ptr,
                     context_ptr->md_context,
                     input_samples,
@@ -661,10 +656,10 @@ static void Av1EncodeLoop(
                     asm_type);
 
                 // Output(s)
-                if (candidateBuffer->candidate_ptr->intra_chroma_mode == UV_CFL_PRED) {
+                if (candidate_buffer->candidate_ptr->intra_chroma_mode == UV_CFL_PRED) {
                     cu_ptr->prediction_unit_array->intra_chroma_mode = UV_CFL_PRED;
-                    cu_ptr->prediction_unit_array->cfl_alpha_idx = candidateBuffer->candidate_ptr->cfl_alpha_idx;
-                    cu_ptr->prediction_unit_array->cfl_alpha_signs = candidateBuffer->candidate_ptr->cfl_alpha_signs;
+                    cu_ptr->prediction_unit_array->cfl_alpha_idx = candidate_buffer->candidate_ptr->cfl_alpha_idx;
+                    cu_ptr->prediction_unit_array->cfl_alpha_signs = candidate_buffer->candidate_ptr->cfl_alpha_signs;
                     cu_ptr->prediction_unit_array->is_directional_chroma_mode_flag = EB_FALSE;
                 }
             }
@@ -843,7 +838,6 @@ void encode_pass_tx_search_hbd(
     EbAsm                          asm_type,
     uint32_t                       *count_non_zero_coeffs,
     uint32_t                       component_mask,
-    uint32_t                       use_delta_qp,
     uint32_t                       dZoffset,
     uint16_t                       *eob,
     MacroblockPlane                *candidate_plane);
@@ -851,7 +845,7 @@ void encode_pass_tx_search_hbd(
 /**********************************************************
 * Encode Loop
 *
-* Summary: Performs a H.265 conformant
+* Summary: Performs an AV1 conformant
 *   Transform, Quantization  and Inverse Quantization of a TU.
 *
 * Inputs:
@@ -882,13 +876,11 @@ static void Av1EncodeLoop16bit(
     EbAsm                 asm_type,
     uint32_t                  *count_non_zero_coeffs,
     uint32_t                 component_mask,
-    uint32_t                   use_delta_qp,
     uint32_t                 dZoffset,
     uint16_t                 *eob,
     MacroblockPlane       *candidate_plane)
 
 {
-    (void)use_delta_qp;
     (void)dZoffset;
     (void)cb_qp;
 
@@ -915,9 +907,6 @@ static void Av1EncodeLoop16bit(
     const uint32_t coeff1dOffsetChroma = context_ptr->coded_area_sb_uv;
     UNUSED(coeff1dOffsetChroma);
 
-    //Update QP for Quant
-    qp += QP_BD_OFFSET;
-
     {
         //**********************************
         // Luma
@@ -932,13 +921,13 @@ static void Av1EncodeLoop16bit(
                 residual16bit->stride_y,
                 context_ptr->blk_geom->tx_width[cu_ptr->tx_depth][context_ptr->txb_itr],
                 context_ptr->blk_geom->tx_height[cu_ptr->tx_depth][context_ptr->txb_itr]);
-            uint8_t  tx_search_skip_fag = (picture_control_set_ptr->parent_pcs_ptr->tx_search_level == TX_SEARCH_ENC_DEC && (picture_control_set_ptr->parent_pcs_ptr->atb_mode == 0 || cu_ptr->prediction_mode_flag == INTER_MODE)) ? get_skip_tx_search_flag(
+            uint8_t  tx_search_skip_flag = (picture_control_set_ptr->parent_pcs_ptr->tx_search_level == TX_SEARCH_ENC_DEC && (picture_control_set_ptr->parent_pcs_ptr->atb_mode == 0 || cu_ptr->prediction_mode_flag == INTER_MODE)) ? get_skip_tx_search_flag(
                 context_ptr->blk_geom->sq_size,
                 MAX_MODE_COST,
                 0,
                 1) : 1;
 
-            if (!tx_search_skip_fag) {
+            if (!tx_search_skip_flag) {
                     encode_pass_tx_search_hbd(
                         picture_control_set_ptr,
                         context_ptr,
@@ -952,7 +941,6 @@ static void Av1EncodeLoop16bit(
                         asm_type,
                         count_non_zero_coeffs,
                         component_mask,
-                        use_delta_qp,
                         dZoffset,
                         eob,
                         candidate_plane);
@@ -1024,8 +1012,8 @@ static void Av1EncodeLoop16bit(
                 uint16_t     *predBuffer = ((uint16_t*)predSamples16bit->buffer_y) + pred_luma_offset;
                 av1_inv_transform_recon(
                     ((int32_t*)inverse_quant_buffer->buffer_y) + coeff1dOffset,
-                    CONVERT_TO_BYTEPTR(predBuffer),
-                    predSamples->stride_y,
+                    CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_y,
+                    CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_y,
                     context_ptr->blk_geom->txsize[cu_ptr->tx_depth][context_ptr->txb_itr],
                     BIT_INCREMENT_10BIT,
                     txb_ptr->transform_type[PLANE_TYPE_Y],
@@ -1214,7 +1202,7 @@ static void Av1EncodeLoop16bit(
 /**********************************************************
 * Encode Generate Recon
 *
-* Summary: Performs a H.265 conformant
+* Summary: Performs an AV1 conformant
 *   Inverse Transform and generate
 *   the reconstructed samples of a TU.
 *
@@ -1261,8 +1249,8 @@ static void Av1EncodeGenerateRecon(
                 uint8_t     *predBuffer = predSamples->buffer_y + pred_luma_offset;
                 av1_inv_transform_recon8bit(
                     ((int32_t*)residual16bit->buffer_y) + context_ptr->coded_area_sb,
-                    predBuffer,
-                    predSamples->stride_y,
+                    predBuffer, predSamples->stride_y,
+                    predBuffer, predSamples->stride_y,
                     context_ptr->blk_geom->txsize[cu_ptr->tx_depth][context_ptr->txb_itr],
                     txb_ptr->transform_type[PLANE_TYPE_Y],
                     PLANE_TYPE_Y,
@@ -1289,8 +1277,8 @@ static void Av1EncodeGenerateRecon(
 
             av1_inv_transform_recon8bit(
                 ((int32_t*)residual16bit->buffer_cb) + context_ptr->coded_area_sb_uv,
-                predBuffer,
-                predSamples->stride_cb,
+                predBuffer, predSamples->stride_cb,
+                predBuffer, predSamples->stride_cb,
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
                 txb_ptr->transform_type[PLANE_TYPE_UV],
                 PLANE_TYPE_UV,
@@ -1307,8 +1295,8 @@ static void Av1EncodeGenerateRecon(
 
             av1_inv_transform_recon8bit(
                 ((int32_t*)residual16bit->buffer_cr) + context_ptr->coded_area_sb_uv,
-                predBuffer,
-                predSamples->stride_cr,
+                predBuffer, predSamples->stride_cr,
+                predBuffer, predSamples->stride_cr,
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
                 txb_ptr->transform_type[PLANE_TYPE_UV],
                 PLANE_TYPE_UV,
@@ -1322,7 +1310,7 @@ static void Av1EncodeGenerateRecon(
 /**********************************************************
 * Encode Generate Recon
 *
-* Summary: Performs a H.265 conformant
+* Summary: Performs an AV1 conformant
 *   Inverse Transform and generate
 *   the reconstructed samples of a TU.
 *
@@ -1369,8 +1357,8 @@ static void Av1EncodeGenerateRecon16bit(
                 uint16_t     *predBuffer = ((uint16_t*)predSamples->buffer_y) + pred_luma_offset;
                 av1_inv_transform_recon(
                     ((int32_t*)residual16bit->buffer_y) + context_ptr->coded_area_sb,
-                    CONVERT_TO_BYTEPTR(predBuffer),
-                    predSamples->stride_y,
+                    CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_y,
+                    CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_y,
                     context_ptr->blk_geom->txsize[cu_ptr->tx_depth][context_ptr->txb_itr],
                     BIT_INCREMENT_10BIT,
                     txb_ptr->transform_type[PLANE_TYPE_Y],
@@ -1399,8 +1387,8 @@ static void Av1EncodeGenerateRecon16bit(
             uint16_t     *predBuffer = ((uint16_t*)predSamples->buffer_cb) + predChromaOffset;
             av1_inv_transform_recon(
                 ((int32_t*)residual16bit->buffer_cb) + context_ptr->coded_area_sb_uv,
-                CONVERT_TO_BYTEPTR(predBuffer),
-                predSamples->stride_cb,
+                CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_cb,
+                CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_cb,
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
                 BIT_INCREMENT_10BIT,
                 txb_ptr->transform_type[PLANE_TYPE_UV],
@@ -1416,8 +1404,8 @@ static void Av1EncodeGenerateRecon16bit(
             uint16_t     *predBuffer = ((uint16_t*)predSamples->buffer_cr) + predChromaOffset;
             av1_inv_transform_recon(
                 ((int32_t*)residual16bit->buffer_cr) + context_ptr->coded_area_sb_uv,
-                CONVERT_TO_BYTEPTR(predBuffer),
-                predSamples->stride_cr,
+                CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_cr,
+                CONVERT_TO_BYTEPTR(predBuffer), predSamples->stride_cr,
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
                 BIT_INCREMENT_10BIT,
                 txb_ptr->transform_type[PLANE_TYPE_UV],
@@ -1439,141 +1427,6 @@ EB_AV1_GENERATE_RECON_FUNC_PTR   Av1EncodeGenerateReconFunctionPtr[2] =
     Av1EncodeGenerateRecon,
     Av1EncodeGenerateRecon16bit
 };
-
-#if ADD_DELTA_QP_SUPPORT
-/*****************************************************************************
-* NM - Note: Clean up
-* AV1 QPM is SB based and all sub-Lcu buffers needs to be removed
-******************************************************************************/
-EbErrorType Av1QpModulationLcu(
-    SequenceControlSet                   *sequence_control_set_ptr,
-    PictureControlSet                    *picture_control_set_ptr,
-    LargestCodingUnit                    *sb_ptr,
-    uint32_t                                  sb_index,
-    uint8_t                                   type,
-    EncDecContext                        *context_ptr)
-{
-    EbErrorType                            return_error = EB_ErrorNone;
-
-    int64_t                                  complexityDistance;
-    int8_t                                   delta_qp = 0;
-    uint16_t                                  qpm_qp = context_ptr->qpm_qp;
-    uint16_t                                  min_qp_allowed = 0;
-    uint16_t                                  max_qp_allowed = 255;
-    uint16_t                                  cu_qp;
-    EbBool                                 acEnergyBasedAntiContouring = picture_control_set_ptr->slice_type == I_SLICE ? EB_TRUE : EB_FALSE;
-    uint8_t                                   lowerQPClass;
-
-    int8_t    non_moving_delta_qp = context_ptr->non_moving_delta_qp;
-    int8_t    bea64x64DeltaQp;
-
-    uint8_t   deltaQpRes = picture_control_set_ptr->parent_pcs_ptr->delta_q_res;
-
-    cu_qp = qpm_qp;
-    sb_ptr->qp = qpm_qp;
-
-    uint32_t  distortion = 0;
-
-    if (!context_ptr->skip_qpm_flag) {
-        // INTRA MODE
-        if (type == INTRA_MODE) {
-            OisSbResults        *ois_sb_results_ptr = picture_control_set_ptr->parent_pcs_ptr->ois_sb_results[sb_index];
-            OisCandidate *OisCuPtr = ois_sb_results_ptr->sorted_ois_candidate[from_1101_to_85[cu_index]];
-            distortion = OisCuPtr[ois_sb_results_ptr->best_distortion_index[from_1101_to_85[cu_index]]].distortion;
-
-            distortion = (uint32_t)CLIP3(picture_control_set_ptr->parent_pcs_ptr->intra_complexity_min[0], picture_control_set_ptr->parent_pcs_ptr->intra_complexity_max[0], distortion);
-            complexityDistance = ((int32_t)distortion - (int32_t)picture_control_set_ptr->parent_pcs_ptr->intra_complexity_avg[0]);
-
-            if (complexityDistance < 0)
-                delta_qp = (picture_control_set_ptr->parent_pcs_ptr->intra_min_distance[0] != 0) ? (int8_t)((context_ptr->min_delta_qp_weight * context_ptr->min_delta_qp[0] * complexityDistance) / (100 * picture_control_set_ptr->parent_pcs_ptr->intra_min_distance[0])) : 0;
-            else
-                delta_qp = (picture_control_set_ptr->parent_pcs_ptr->intra_max_distance[0] != 0) ? (int8_t)((context_ptr->max_delta_qp_weight * context_ptr->max_delta_qp[0] * complexityDistance) / (100 * picture_control_set_ptr->parent_pcs_ptr->intra_max_distance[0])) : 0;
-        }
-        // INTER MODE
-        else {
-            distortion = picture_control_set_ptr->parent_pcs_ptr->me_results[sb_index][0].distortion_direction[0].distortion;
-
-            distortion = (uint32_t)CLIP3(picture_control_set_ptr->parent_pcs_ptr->inter_complexity_min[0], picture_control_set_ptr->parent_pcs_ptr->inter_complexity_max[0], distortion);
-            complexityDistance = ((int32_t)distortion - (int32_t)picture_control_set_ptr->parent_pcs_ptr->inter_complexity_avg[0]);
-
-            if (complexityDistance < 0)
-                delta_qp = (picture_control_set_ptr->parent_pcs_ptr->inter_min_distance[0] != 0) ? (int8_t)((context_ptr->min_delta_qp_weight * context_ptr->min_delta_qp[0] * complexityDistance) / (100 * picture_control_set_ptr->parent_pcs_ptr->inter_min_distance[0])) : 0;
-            else
-                delta_qp = (picture_control_set_ptr->parent_pcs_ptr->inter_max_distance[0] != 0) ? (int8_t)((context_ptr->max_delta_qp_weight * context_ptr->max_delta_qp[0] * complexityDistance) / (100 * picture_control_set_ptr->parent_pcs_ptr->inter_max_distance[0])) : 0;
-        }
-
-        if (context_ptr->backgorund_enhancement) {
-            // Use the 8x8 background enhancement only for the Intra slice, otherwise, use the existing SB based BEA results
-            bea64x64DeltaQp = non_moving_delta_qp;
-
-            if ((picture_control_set_ptr->parent_pcs_ptr->y_mean[sb_index][0] > ANTI_CONTOURING_LUMA_T2) || (picture_control_set_ptr->parent_pcs_ptr->y_mean[sb_index][0] < ANTI_CONTOURING_LUMA_T1)) {
-                if (bea64x64DeltaQp < 0)
-                    bea64x64DeltaQp = 0;
-            }
-
-            delta_qp += bea64x64DeltaQp;
-        }
-
-        if ((picture_control_set_ptr->parent_pcs_ptr->logo_pic_flag))
-            delta_qp = (delta_qp < context_ptr->min_delta_qp[0]) ? delta_qp : context_ptr->min_delta_qp[0];
-        SbStat *sb_stat_ptr = &(picture_control_set_ptr->parent_pcs_ptr->sb_stat_array[sb_index]);
-        if (sb_stat_ptr->stationary_edge_over_time_flag && delta_qp > 0)
-            delta_qp = 0;
-        if (acEnergyBasedAntiContouring) {
-            lowerQPClass = derive_contouring_class(
-                sb_ptr->picture_control_set_ptr->parent_pcs_ptr,
-                sb_ptr->index,
-                (uint8_t)1/*cu_index*/);
-
-            if (lowerQPClass) {
-                if (lowerQPClass == 3)
-                    delta_qp = ANTI_CONTOURING_DELTA_QP_0;
-                else if (lowerQPClass == 2)
-                    delta_qp = ANTI_CONTOURING_DELTA_QP_1;
-                else if (lowerQPClass == 1)
-                    delta_qp = ANTI_CONTOURING_DELTA_QP_2;
-            }
-        }
-
-        delta_qp -= context_ptr->grass_enhancement_flag ? 3 : 0;
-
-        delta_qp *= deltaQpRes;
-
-        if (sequence_control_set_ptr->static_config.rate_control_mode == 1 || sequence_control_set_ptr->static_config.rate_control_mode == 2) {
-            if (qpm_qp > (RC_QPMOD_MAXQP * deltaQpRes))
-                delta_qp = MIN(0, delta_qp);
-            cu_qp = (uint32_t)(qpm_qp + delta_qp);
-
-            if ((qpm_qp <= (RC_QPMOD_MAXQP *deltaQpRes))) {
-                cu_qp = (uint8_t)CLIP3(
-                    min_qp_allowed,
-                    RC_QPMOD_MAXQP*deltaQpRes,
-                    cu_qp);
-            }
-        }
-        else
-            cu_qp = (uint8_t)(qpm_qp + delta_qp);
-        cu_qp = (uint8_t)CLIP3(
-            min_qp_allowed,
-            max_qp_allowed,
-            cu_qp);
-    }
-
-    sb_ptr->qp = sequence_control_set_ptr->static_config.improve_sharpness ? cu_qp : qpm_qp;
-
-    sb_ptr->delta_qp = (int16_t)sb_ptr->qp - (int16_t)qpm_qp;
-
-    sb_ptr->org_delta_qp = sb_ptr->delta_qp;
-
-    if (sb_ptr->delta_qp % deltaQpRes != 0)
-        printf("Qpm_error: delta_qp must be multiplier of deltaQpRes\n");
-    if (sb_ptr->qp == 0)
-        printf("Qpm_error: qp must be greater than 0 when use_delta_q is ON\n");
-
-    return return_error;
-}
-
-#endif
 
 void Store16bitInputSrc(
     EbPictureBufferDesc     *input_sample16bit_buffer,
@@ -1675,9 +1528,7 @@ void perform_intra_coding_loop(
         context_ptr->md_context->luma_txb_skip_context = 0;
         context_ptr->md_context->luma_dc_sign_context = 0;
         get_txb_ctx(
-#if INCOMPLETE_SB_FIX
             picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
             COMPONENT_LUMA,
             picture_control_set_ptr->ep_luma_dc_sign_level_coeff_neighbor_array,
             txb_origin_x,
@@ -1776,7 +1627,7 @@ void perform_intra_coding_loop(
         }
         // Encode Transform Unit -INTRA-
 
-        uint8_t cb_qp = cu_ptr->qp;
+        uint16_t cb_qp = cu_ptr->qp;
         Av1EncodeLoopFunctionTable[is16bit](
             picture_control_set_ptr,
             context_ptr,
@@ -1793,24 +1644,23 @@ void perform_intra_coding_loop(
             asm_type,
             count_non_zero_coeffs,
             PICTURE_BUFFER_DESC_LUMA_MASK,
-            0,
             cu_ptr->delta_qp > 0 ? 0 : dZoffset,
             eobs[context_ptr->txb_itr],
             cuPlane);
 
         if (picture_control_set_ptr->update_cdf)
         {
-            ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-            ModeDecisionCandidateBuffer          *candidateBuffer;
+            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+            ModeDecisionCandidateBuffer          *candidate_buffer;
 
             // Set the Candidate Buffer
-            candidateBuffer = candidate_buffer_ptr_array[0];
+            candidate_buffer = candidate_buffer_ptr_array[0];
             // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-            candidateBuffer->candidate_ptr->transform_type[context_ptr->txb_itr] = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_Y];
-            candidateBuffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
-            candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
-            candidateBuffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
+            candidate_buffer->candidate_ptr->transform_type[context_ptr->txb_itr] = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_Y];
+            candidate_buffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
+            candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+            candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
             const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -1819,7 +1669,7 @@ void perform_intra_coding_loop(
                 1,//allow_update_cdf,
                 &picture_control_set_ptr->ec_ctx_array[tbAddr],
                 picture_control_set_ptr,
-                candidateBuffer,
+                candidate_buffer,
                 coeff1dOffset,
                 context_ptr->coded_area_sb_uv,
                 coeff_est_entropy_coder_ptr,
@@ -1832,8 +1682,8 @@ void perform_intra_coding_loop(
                 &cr_tu_coeff_bits,
                 context_ptr->blk_geom->txsize[cu_ptr->tx_depth][context_ptr->txb_itr],
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
-                candidateBuffer->candidate_ptr->transform_type[context_ptr->txb_itr],
-                candidateBuffer->candidate_ptr->transform_type_uv,
+                candidate_buffer->candidate_ptr->transform_type[context_ptr->txb_itr],
+                candidate_buffer->candidate_ptr->transform_type_uv,
                 COMPONENT_LUMA,
                 asm_type);
         }
@@ -1897,9 +1747,7 @@ void perform_intra_coding_loop(
         context_ptr->md_context->cb_txb_skip_context = 0;
         context_ptr->md_context->cb_dc_sign_context = 0;
         get_txb_ctx(
-#if INCOMPLETE_SB_FIX
             picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
             COMPONENT_CHROMA,
             picture_control_set_ptr->ep_cb_dc_sign_level_coeff_neighbor_array,
             cu_originx_uv,
@@ -1912,9 +1760,7 @@ void perform_intra_coding_loop(
         context_ptr->md_context->cr_txb_skip_context = 0;
         context_ptr->md_context->cr_dc_sign_context = 0;
         get_txb_ctx(
-#if INCOMPLETE_SB_FIX
             picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
             COMPONENT_CHROMA,
             picture_control_set_ptr->ep_cr_dc_sign_level_coeff_neighbor_array,
             cu_originx_uv,
@@ -2046,7 +1892,7 @@ void perform_intra_coding_loop(
         }
 
         // Encode Transform Unit -INTRA-
-        uint8_t cb_qp = cu_ptr->qp;
+        uint16_t cb_qp = cu_ptr->qp;
 
         Av1EncodeLoopFunctionTable[is16bit](
             picture_control_set_ptr,
@@ -2064,24 +1910,23 @@ void perform_intra_coding_loop(
             asm_type,
             count_non_zero_coeffs,
             PICTURE_BUFFER_DESC_CHROMA_MASK,
-            0,
             cu_ptr->delta_qp > 0 ? 0 : dZoffset,
             eobs[context_ptr->txb_itr],
             cuPlane);
 
         if (picture_control_set_ptr->update_cdf)
         {
-            ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-            ModeDecisionCandidateBuffer          *candidateBuffer;
+            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+            ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+            ModeDecisionCandidateBuffer          *candidate_buffer;
 
             // Set the Candidate Buffer
-            candidateBuffer = candidate_buffer_ptr_array[0];
+            candidate_buffer = candidate_buffer_ptr_array[0];
             // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-            candidateBuffer->candidate_ptr->transform_type[context_ptr->txb_itr] = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_Y];
-            candidateBuffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
-            candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
-            candidateBuffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
+            candidate_buffer->candidate_ptr->transform_type[context_ptr->txb_itr] = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_Y];
+            candidate_buffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
+            candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+            candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
             const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -2090,7 +1935,7 @@ void perform_intra_coding_loop(
                 1,//allow_update_cdf,
                 &picture_control_set_ptr->ec_ctx_array[tbAddr],
                 picture_control_set_ptr,
-                candidateBuffer,
+                candidate_buffer,
                 coeff1dOffset,
                 context_ptr->coded_area_sb_uv,
                 coeff_est_entropy_coder_ptr,
@@ -2103,8 +1948,8 @@ void perform_intra_coding_loop(
                 &cr_tu_coeff_bits,
                 context_ptr->blk_geom->txsize[cu_ptr->tx_depth][context_ptr->txb_itr],
                 context_ptr->blk_geom->txsize_uv[cu_ptr->tx_depth][context_ptr->txb_itr],
-                candidateBuffer->candidate_ptr->transform_type[context_ptr->txb_itr],
-                candidateBuffer->candidate_ptr->transform_type_uv,
+                candidate_buffer->candidate_ptr->transform_type[context_ptr->txb_itr],
+                candidate_buffer->candidate_ptr->transform_type_uv,
                 COMPONENT_CHROMA,
                 asm_type);
         }
@@ -2186,11 +2031,44 @@ void perform_intra_coding_loop(
         }
     } // Transform Loop
 }
+#define REFMVS_LIMIT ((1 << 12) - 1)
 
+void av1_copy_frame_mvs(PictureControlSet *picture_control_set_ptr, const Av1Common *const cm,
+    MbModeInfo  mi, int mi_row, int mi_col,
+    int x_mis, int y_mis, EbReferenceObject *object_ptr) {
+    const int frame_mvs_stride = ROUND_POWER_OF_TWO(cm->mi_cols, 1);
+    MV_REF *frame_mvs = object_ptr->mvs + (mi_row >> 1) * frame_mvs_stride + (mi_col >> 1);
+    x_mis = ROUND_POWER_OF_TWO(x_mis, 1);
+    y_mis = ROUND_POWER_OF_TWO(y_mis, 1);
+    int w, h;
+
+    for (h = 0; h < y_mis; h++) {
+        MV_REF *mv = frame_mvs;
+        for (w = 0; w < x_mis; w++) {
+            mv->ref_frame = NONE_FRAME;
+            mv->mv.as_int = 0;
+
+            for (int idx = 0; idx < 2; ++idx) {
+                MvReferenceFrame ref_frame = mi.ref_frame[idx];
+                if (ref_frame > INTRA_FRAME) {
+                    int8_t ref_idx = picture_control_set_ptr->ref_frame_side[ref_frame];
+                    if (ref_idx) continue;
+                    if ((abs(mi.mv[idx].as_mv.row) > REFMVS_LIMIT) ||
+                        (abs(mi.mv[idx].as_mv.col) > REFMVS_LIMIT))
+                        continue;
+                    mv->ref_frame = ref_frame;
+                    mv->mv.as_int = mi.mv[idx].as_int;
+                }
+            }
+            mv++;
+        }
+        frame_mvs += frame_mvs_stride;
+    }
+}
 /*******************************************
 * Encode Pass
 *
-* Summary: Performs a H.265 conformant
+* Summary: Performs an AV1 conformant
 *   reconstruction based on the LCU
 *   mode decision.
 *
@@ -2282,9 +2160,6 @@ EB_EXTERN void av1_encode_pass(
     else  // non ref pictures
         recon_buffer = is16bit ? picture_control_set_ptr->recon_picture16bit_ptr : picture_control_set_ptr->recon_picture_ptr;
 
-    EbBool use_delta_qp = (EbBool)sequence_control_set_ptr->static_config.improve_sharpness;
-    EbBool oneSegment = (sequence_control_set_ptr->enc_dec_segment_col_count_array[picture_control_set_ptr->temporal_layer_index] == 1) && (sequence_control_set_ptr->enc_dec_segment_row_count_array[picture_control_set_ptr->temporal_layer_index] == 1);
-    EbBool useDeltaQpSegments = oneSegment ? 0 : (EbBool)sequence_control_set_ptr->static_config.improve_sharpness;
 
     // DeriveZeroLumaCbf
     EbBool  highIntraRef = EB_FALSE;
@@ -2414,17 +2289,6 @@ EB_EXTERN void av1_encode_pass(
         }
     }
 #endif
-#if ADD_DELTA_QP_SUPPORT
-    if (context_ptr->skip_qpm_flag == EB_FALSE && sequence_control_set_ptr->static_config.improve_sharpness) {
-        Av1QpModulationLcu(
-            sequence_control_set_ptr,
-            picture_control_set_ptr,
-            sb_ptr,
-            tbAddr,
-            picture_control_set_ptr->slice_type == I_SLICE ? INTRA_MODE : INTER_MODE,
-            context_ptr);
-    }
-#endif
 
     uint8_t allow_update_cdf = picture_control_set_ptr->update_cdf;
 
@@ -2441,11 +2305,7 @@ EB_EXTERN void av1_encode_pass(
         const BlockGeom * blk_geom = context_ptr->blk_geom = get_blk_geom_mds(blk_it);
         UNUSED(blk_geom);
         sb_ptr->cu_partition_array[blk_it] = context_ptr->md_context->md_cu_arr_nsq[blk_it].part;
-#if INCOMPLETE_SB_FIX
         if (part != PARTITION_SPLIT && sequence_control_set_ptr->sb_geom[tbAddr].block_is_allowed[blk_it]) {
-#else
-        if (part != PARTITION_SPLIT) {
-#endif
             int32_t offset_d1 = ns_blk_offset[(int32_t)part]; //cu_ptr->best_d1_blk; // TOCKECK
             int32_t num_d1_block = ns_blk_num[(int32_t)part]; // context_ptr->blk_geom->totns; // TOCKECK
 
@@ -2481,38 +2341,21 @@ EB_EXTERN void av1_encode_pass(
                     context_ptr->blk_geom->bheight == 4) ? EB_TRUE : EB_FALSE;
                 // Evaluate cfl @ EP if applicable, and not done @ MD
                 context_ptr->evaluate_cfl_ep = (disable_cfl_flag == EB_FALSE && context_ptr->md_context->chroma_level == CHROMA_MODE_2);
-
-#if ADD_DELTA_QP_SUPPORT
-                if (context_ptr->skip_qpm_flag == EB_FALSE && sequence_control_set_ptr->static_config.improve_sharpness) {
-                    cu_ptr->qp = sb_ptr->qp;
-                    cu_ptr->delta_qp = sb_ptr->delta_qp;
-                    cu_ptr->org_delta_qp = sb_ptr->org_delta_qp;
-                }
-                else {
-                    uint16_t                           picture_qp = picture_control_set_ptr->parent_pcs_ptr->base_qindex;
-                    sb_ptr->qp = picture_qp;
-                    cu_ptr->qp = sb_ptr->qp;
-                    cu_ptr->delta_qp = 0;
-                    cu_ptr->org_delta_qp = 0;
-                }
-
-#else
-
                 // for now, segmentation independent of sharpness/delta QP.
-                if(picture_control_set_ptr->parent_pcs_ptr->frm_hdr.segmentation_params.segmentation_enabled){
+                if (picture_control_set_ptr->parent_pcs_ptr->frm_hdr.segmentation_params.segmentation_enabled) {
                     apply_segmentation_based_quantization(
-                            blk_geom,
-                            picture_control_set_ptr,
-                            sb_ptr,
-                            cu_ptr);
+                        blk_geom,
+                        picture_control_set_ptr,
+                        sb_ptr,
+                        cu_ptr);
 
                     sb_ptr->qp = cu_ptr->qp;
-                } else{
-                    cu_ptr->qp = (sequence_control_set_ptr->static_config.improve_sharpness) ? context_ptr->qpm_qp : picture_control_set_ptr->picture_qp;
-                    sb_ptr->qp = (sequence_control_set_ptr->static_config.improve_sharpness) ? context_ptr->qpm_qp : picture_control_set_ptr->picture_qp;
+                }
+                else {
+                    cu_ptr->qp = sb_ptr->qp;
+                    cu_ptr->delta_qp = sb_ptr->delta_qp;
                 }
 
-#endif
 
                 if (cu_ptr->prediction_mode_flag == INTRA_MODE) {
                     context_ptr->is_inter = cu_ptr->av1xd->use_intrabc;
@@ -2584,9 +2427,7 @@ EB_EXTERN void av1_encode_pass(
                            context_ptr->md_context->luma_txb_skip_context = 0;
                            context_ptr->md_context->luma_dc_sign_context = 0;
                            get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                COMPONENT_LUMA,
                                picture_control_set_ptr->ep_luma_dc_sign_level_coeff_neighbor_array,
                                context_ptr->cu_origin_x,
@@ -2600,9 +2441,7 @@ EB_EXTERN void av1_encode_pass(
                                context_ptr->md_context->cb_txb_skip_context = 0;
                                context_ptr->md_context->cb_dc_sign_context = 0;
                                get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                    picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                    COMPONENT_CHROMA,
                                    picture_control_set_ptr->ep_cb_dc_sign_level_coeff_neighbor_array,
                                    cu_originx_uv,
@@ -2616,9 +2455,7 @@ EB_EXTERN void av1_encode_pass(
                                context_ptr->md_context->cr_txb_skip_context = 0;
                                context_ptr->md_context->cr_dc_sign_context = 0;
                                get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                    picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                    COMPONENT_CHROMA,
                                    picture_control_set_ptr->ep_cr_dc_sign_level_coeff_neighbor_array,
                                    cu_originx_uv,
@@ -2702,9 +2539,18 @@ EB_EXTERN void av1_encode_pass(
                                     cu_ptr->prediction_unit_array->ref_frame_type,
                                     &context_ptr->mv_unit,
                                     1,// use_intrabc,
-#if COMP_MODE
                                     1,
                                     &cu_ptr->interinter_comp,
+#if II_COMP_FLAG
+                                    &sb_ptr->tile_info,
+                                    ep_luma_recon_neighbor_array,
+                                    ep_cb_recon_neighbor_array ,
+                                    ep_cr_recon_neighbor_array ,
+                                    cu_ptr->is_interintra_used,
+                                    cu_ptr->interintra_mode,
+                                    cu_ptr->use_wedge_interintra,
+                                    cu_ptr->interintra_wedge_index,
+
 #endif
                                     context_ptr->cu_origin_x,
                                     context_ptr->cu_origin_y,
@@ -2866,7 +2712,7 @@ EB_EXTERN void av1_encode_pass(
 
                             // Encode Transform Unit -INTRA-
                             {
-                                uint8_t             cb_qp = cu_ptr->qp;
+                                uint16_t             cb_qp = cu_ptr->qp;
 
                                 Av1EncodeLoopFunctionTable[is16bit](
                                     picture_control_set_ptr,
@@ -2884,22 +2730,21 @@ EB_EXTERN void av1_encode_pass(
                                     asm_type,
                                     count_non_zero_coeffs,
                                     blk_geom->has_uv ? PICTURE_BUFFER_DESC_FULL_MASK : PICTURE_BUFFER_DESC_LUMA_MASK,
-                                    useDeltaQpSegments,
                                     cu_ptr->delta_qp > 0 ? 0 : dZoffset,
                                     eobs[context_ptr->txb_itr],
                                     cuPlane);
 
                                 if(allow_update_cdf)
                                 {
-                                    ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-                                    ModeDecisionCandidateBuffer          *candidateBuffer;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+                                    ModeDecisionCandidateBuffer          *candidate_buffer;
 
                                     // Set the Candidate Buffer
-                                    candidateBuffer = candidate_buffer_ptr_array[0];
+                                    candidate_buffer = candidate_buffer_ptr_array[0];
                                     // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-                                    candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
-                                    candidateBuffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
+                                    candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+                                    candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
                                     const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -2908,7 +2753,7 @@ EB_EXTERN void av1_encode_pass(
                                         1,//allow_update_cdf,
                                         &picture_control_set_ptr->ec_ctx_array[tbAddr],
                                         picture_control_set_ptr,
-                                        candidateBuffer,
+                                        candidate_buffer,
                                         coeff1dOffset,
                                         context_ptr->coded_area_sb_uv,
                                         coeff_est_entropy_coder_ptr,
@@ -3058,10 +2903,8 @@ EB_EXTERN void av1_encode_pass(
                     EbBool  zeroLumaCbfMD = EB_FALSE;
                     //EbBool doLumaMC = EB_TRUE;
                     EbBool doMVpred = EB_TRUE;
-                    //if QPM and Segments are used, First Cu in SB row should have at least one coeff.
-                    EbBool isFirstCUinRow = (use_delta_qp == 1) &&
-                        !oneSegment &&
-                        (context_ptr->cu_origin_x == 0 && context_ptr->cu_origin_y == sb_origin_y) ? EB_TRUE : EB_FALSE;
+                    //if QP M and Segments are used, First Cu in SB row should have at least one coeff.
+                    EbBool isFirstCUinRow = EB_FALSE;
                     zeroLumaCbfMD = (EbBool)(checkZeroLumaCbf && ((&cu_ptr->prediction_unit_array[0])->merge_flag == EB_FALSE && cu_ptr->block_has_coeff == 0 && isFirstCUinRow == EB_FALSE));
                     zeroLumaCbfMD = EB_FALSE;
 
@@ -3187,9 +3030,18 @@ EB_EXTERN void av1_encode_pass(
                                     cu_ptr->prediction_unit_array->ref_frame_type,
                                     &context_ptr->mv_unit,
                                     0,//use_intrabc,
-#if COMP_MODE
                                     cu_ptr->compound_idx,
                                     &cu_ptr->interinter_comp,
+#if II_COMP_FLAG
+                                    &sb_ptr->tile_info,
+                                    ep_luma_recon_neighbor_array,
+                                    ep_cb_recon_neighbor_array ,
+                                    ep_cr_recon_neighbor_array ,
+                                    cu_ptr->is_interintra_used,
+                                    cu_ptr->interintra_mode,
+                                    cu_ptr->use_wedge_interintra,
+                                    cu_ptr->interintra_wedge_index,
+
 #endif
                                     context_ptr->cu_origin_x,
                                     context_ptr->cu_origin_y,
@@ -3222,7 +3074,7 @@ EB_EXTERN void av1_encode_pass(
 
                     uint32_t totTu = context_ptr->blk_geom->txb_count[cu_ptr->tx_depth];
                     uint8_t   tuIt;
-                    uint8_t   cb_qp = cu_ptr->qp;
+                    uint16_t   cb_qp = cu_ptr->qp;
                     uint32_t  component_mask = context_ptr->blk_geom->has_uv ? PICTURE_BUFFER_DESC_FULL_MASK : PICTURE_BUFFER_DESC_LUMA_MASK;
 
                     if (cu_ptr->prediction_unit_array[0].merge_flag == EB_FALSE) {
@@ -3235,9 +3087,7 @@ EB_EXTERN void av1_encode_pass(
                             context_ptr->md_context->luma_txb_skip_context = 0;
                             context_ptr->md_context->luma_dc_sign_context = 0;
                             get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                 picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                 COMPONENT_LUMA,
                                 picture_control_set_ptr->ep_luma_dc_sign_level_coeff_neighbor_array,
                                 txb_origin_x,
@@ -3251,9 +3101,7 @@ EB_EXTERN void av1_encode_pass(
                                 context_ptr->md_context->cb_txb_skip_context = 0;
                                 context_ptr->md_context->cb_dc_sign_context = 0;
                                 get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                     picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                     COMPONENT_CHROMA,
                                     picture_control_set_ptr->ep_cb_dc_sign_level_coeff_neighbor_array,
                                     ROUND_UV(txb_origin_x) >> 1,
@@ -3266,9 +3114,7 @@ EB_EXTERN void av1_encode_pass(
                                 context_ptr->md_context->cr_txb_skip_context = 0;
                                 context_ptr->md_context->cr_dc_sign_context = 0;
                                 get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                     picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                     COMPONENT_CHROMA,
                                     picture_control_set_ptr->ep_cr_dc_sign_level_coeff_neighbor_array,
                                     ROUND_UV(txb_origin_x) >> 1,
@@ -3296,7 +3142,6 @@ EB_EXTERN void av1_encode_pass(
                                     asm_type,
                                     count_non_zero_coeffs,
                                     context_ptr->blk_geom->has_uv && uv_pass ? PICTURE_BUFFER_DESC_FULL_MASK : PICTURE_BUFFER_DESC_LUMA_MASK,
-                                    useDeltaQpSegments,
                                     cu_ptr->delta_qp > 0 ? 0 : dZoffset,
                                     eobs[context_ptr->txb_itr],
                                     cuPlane);
@@ -3336,14 +3181,14 @@ EB_EXTERN void av1_encode_pass(
                                 cr_tu_coeff_bits = 0;
 
                                 if (!zeroLumaCbfMD) {
-                                    ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-                                    ModeDecisionCandidateBuffer          *candidateBuffer;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+                                    ModeDecisionCandidateBuffer          *candidate_buffer;
 
                                     // Set the Candidate Buffer
-                                    candidateBuffer = candidate_buffer_ptr_array[0];
+                                    candidate_buffer = candidate_buffer_ptr_array[0];
                                     // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-                                    candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+                                    candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
 
                                     const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -3352,7 +3197,7 @@ EB_EXTERN void av1_encode_pass(
                                         0,//allow_update_cdf,
                                         NULL,
                                         picture_control_set_ptr,
-                                        candidateBuffer,
+                                        candidate_buffer,
                                         coeff1dOffset,
                                         context_ptr->coded_area_sb_uv,
                                         coeff_est_entropy_coder_ptr,
@@ -3411,15 +3256,15 @@ EB_EXTERN void av1_encode_pass(
                                 y_full_distortion[DIST_CALC_PREDICTION] += yTuFullDistortion[DIST_CALC_PREDICTION];
 
                                 if (allow_update_cdf) {
-                                    ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-                                    ModeDecisionCandidateBuffer          *candidateBuffer;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+                                    ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+                                    ModeDecisionCandidateBuffer          *candidate_buffer;
 
                                     // Set the Candidate Buffer
-                                    candidateBuffer = candidate_buffer_ptr_array[0];
+                                    candidate_buffer = candidate_buffer_ptr_array[0];
                                     // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-                                    candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
-                                    candidateBuffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
+                                    candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+                                    candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
                                     const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -3438,7 +3283,7 @@ EB_EXTERN void av1_encode_pass(
                                         1,//allow_update_cdf,
                                         &picture_control_set_ptr->ec_ctx_array[tbAddr],
                                         picture_control_set_ptr,
-                                        candidateBuffer,
+                                        candidate_buffer,
                                         coeff1dOffset,
                                         context_ptr->coded_area_sb_uv,
                                         coeff_est_entropy_coder_ptr,
@@ -3539,9 +3384,7 @@ EB_EXTERN void av1_encode_pass(
                             context_ptr->md_context->luma_txb_skip_context = 0;
                             context_ptr->md_context->luma_dc_sign_context = 0;
                             get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                 picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                 COMPONENT_LUMA,
                                 picture_control_set_ptr->ep_luma_dc_sign_level_coeff_neighbor_array,
                                 txb_origin_x,
@@ -3556,9 +3399,7 @@ EB_EXTERN void av1_encode_pass(
                                 context_ptr->md_context->cb_txb_skip_context = 0;
                                 context_ptr->md_context->cb_dc_sign_context = 0;
                                 get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                     picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                     COMPONENT_CHROMA,
                                     picture_control_set_ptr->ep_cb_dc_sign_level_coeff_neighbor_array,
                                     ROUND_UV(txb_origin_x) >> 1,
@@ -3572,9 +3413,7 @@ EB_EXTERN void av1_encode_pass(
                                 context_ptr->md_context->cr_txb_skip_context = 0;
                                 context_ptr->md_context->cr_dc_sign_context = 0;
                                 get_txb_ctx(
-#if INCOMPLETE_SB_FIX
                                     picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
-#endif
                                     COMPONENT_CHROMA,
                                     picture_control_set_ptr->ep_cr_dc_sign_level_coeff_neighbor_array,
                                     ROUND_UV(txb_origin_x) >> 1,
@@ -3613,21 +3452,20 @@ EB_EXTERN void av1_encode_pass(
                                 asm_type,
                                 count_non_zero_coeffs,
                                 context_ptr->blk_geom->has_uv && uv_pass ? PICTURE_BUFFER_DESC_FULL_MASK : PICTURE_BUFFER_DESC_LUMA_MASK,
-                                useDeltaQpSegments,
                                 cu_ptr->delta_qp > 0 ? 0 : dZoffset,
                                 eobs[context_ptr->txb_itr],
                                 cuPlane);
 
                             if (allow_update_cdf) {
-                                ModeDecisionCandidateBuffer         **candidateBufferPtrArrayBase = context_ptr->md_context->candidate_buffer_ptr_array;
-                                ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidateBufferPtrArrayBase[0]);
-                                ModeDecisionCandidateBuffer          *candidateBuffer;
+                                ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array_base = context_ptr->md_context->candidate_buffer_ptr_array;
+                                ModeDecisionCandidateBuffer         **candidate_buffer_ptr_array = &(candidate_buffer_ptr_array_base[0]);
+                                ModeDecisionCandidateBuffer          *candidate_buffer;
 
                                 // Set the Candidate Buffer
-                                candidateBuffer = candidate_buffer_ptr_array[0];
+                                candidate_buffer = candidate_buffer_ptr_array[0];
                                 // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
-                                candidateBuffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
-                                candidateBuffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
+                                candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
+                                candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
                                 const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
@@ -3636,7 +3474,7 @@ EB_EXTERN void av1_encode_pass(
                                     1,//allow_update_cdf,
                                     &picture_control_set_ptr->ec_ctx_array[tbAddr],
                                     picture_control_set_ptr,
-                                    candidateBuffer,
+                                    candidate_buffer,
                                     coeff1dOffset,
                                     context_ptr->coded_area_sb_uv,
                                     coeff_est_entropy_coder_ptr,
@@ -3826,6 +3664,19 @@ EB_EXTERN void av1_encode_pass(
 
                     move_cu_data(src_cu, dst_cu);
                 }
+                if (sequence_control_set_ptr->mfmv_enabled && picture_control_set_ptr->slice_type != I_SLICE && picture_control_set_ptr->parent_pcs_ptr->is_used_as_reference_flag) {
+                    uint32_t mi_stride = picture_control_set_ptr->mi_stride;
+                    int32_t mi_row = context_ptr->cu_origin_y >> MI_SIZE_LOG2;
+                    int32_t mi_col = context_ptr->cu_origin_x >> MI_SIZE_LOG2;
+                    const int32_t offset = mi_row * mi_stride + mi_col;
+                    ModeInfo *miPtr = *(picture_control_set_ptr->mi_grid_base + offset);
+                    const int x_mis = AOMMIN(context_ptr->blk_geom->bwidth, picture_control_set_ptr->parent_pcs_ptr->av1_cm->mi_cols - mi_col);
+                    const int y_mis = AOMMIN(context_ptr->blk_geom->bheight, picture_control_set_ptr->parent_pcs_ptr->av1_cm->mi_rows - mi_row);
+                    EbReferenceObject *obj_l0 = (EbReferenceObject*)picture_control_set_ptr->parent_pcs_ptr->reference_picture_wrapper_ptr->object_ptr;
+
+                    av1_copy_frame_mvs(picture_control_set_ptr, picture_control_set_ptr->parent_pcs_ptr->av1_cm, miPtr->mbmi,
+                        mi_row, mi_col, x_mis, y_mis, obj_l0);
+                }
             }
             blk_it += ns_depth_offset[sequence_control_set_ptr->seq_header.sb_size == BLOCK_128X128][context_ptr->blk_geom->depth];
         }
@@ -3887,8 +3738,8 @@ EB_EXTERN void no_enc_dec_pass(
                 CodingUnit            *cu_ptr = context_ptr->cu_ptr = &context_ptr->md_context->md_cu_arr_nsq[d1_itr];
 
                 cu_ptr->delta_qp = 0;
-                cu_ptr->qp = (sequence_control_set_ptr->static_config.improve_sharpness) ? context_ptr->qpm_qp : picture_control_set_ptr->picture_qp;
-                sb_ptr->qp = (sequence_control_set_ptr->static_config.improve_sharpness) ? context_ptr->qpm_qp : picture_control_set_ptr->picture_qp;
+                cu_ptr->qp = picture_control_set_ptr->picture_qp;
+                sb_ptr->qp = picture_control_set_ptr->picture_qp;
                 cu_ptr->org_delta_qp = cu_ptr->delta_qp;
 
                 {

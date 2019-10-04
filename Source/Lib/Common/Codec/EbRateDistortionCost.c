@@ -395,6 +395,94 @@ static INLINE int32_t av1_cost_skip_txb(
         update_cdf(ec_ctx->txb_skip_cdf[txs_ctx][txb_skip_ctx], 1, 2);
     return coeff_costs->txb_skip_cost[txb_skip_ctx][1];
 }
+
+static INLINE int32_t av1_cost_coeffs_txb_loop_cost_eob(uint16_t eob,
+    const int16_t *const scan, const TranLow *const qcoeff,
+    int8_t *const coeff_contexts, const LvMapCoeffCost *coeff_costs,
+    int16_t dc_sign_ctx, uint8_t *const levels,
+    const int32_t bwl,
+    TxType transform_type) {
+    const uint32_t cost_literal = av1_cost_literal(1);
+    int32_t cost = 0;
+    int32_t c;
+
+    /* Loop reduced to touch only first (eob - 1) and last (0) index */
+    int32_t decr = eob - 1;
+    if (decr < 1)
+        decr = 1;
+    for (c = eob - 1; c >= 0; c -= decr) {
+        const int32_t pos = scan[c];
+        const TranLow v = qcoeff[pos];
+         const int32_t is_nz = (v != 0);
+        const int32_t level = abs(v);
+        const int32_t coeff_ctx = coeff_contexts[pos];
+
+        if (c == eob - 1) {
+            assert((AOMMIN(level, 3) - 1) >= 0);
+            cost += coeff_costs->base_eob_cost[coeff_ctx][AOMMIN(level, 3) - 1];
+        }
+        else {
+            cost += coeff_costs->base_cost[coeff_ctx][AOMMIN(level, 3)];
+        }
+
+        if (is_nz) {
+            if (c == 0) {
+                const int32_t sign = (v < 0) ? 1 : 0;
+                // sign bit cost
+
+                cost += coeff_costs->dc_sign_cost[dc_sign_ctx][sign];
+            }
+            else {
+                cost += cost_literal;
+            }
+
+            if (level > NUM_BASE_LEVELS) {
+                int32_t ctx;
+                ctx = get_br_ctx(levels, pos, bwl, transform_type);
+
+                const int32_t base_range = level - 1 - NUM_BASE_LEVELS;
+
+                if (base_range < COEFF_BASE_RANGE)
+                    cost += coeff_costs->lps_cost[ctx][base_range];
+                else
+                    cost += coeff_costs->lps_cost[ctx][COEFF_BASE_RANGE];
+
+
+                if (level >= 1 + NUM_BASE_LEVELS + COEFF_BASE_RANGE)
+                    cost += get_golomb_cost(level);
+            }
+        }
+    }
+
+    /* Optimized Loop, omitted first (eob - 1) and last (0) index */
+    for (c = eob - 2; c >= 1; --c) {
+        const int32_t pos = scan[c];
+        const int32_t level = abs(qcoeff[pos]);
+        if (level > NUM_BASE_LEVELS) {
+            const int32_t ctx = get_br_ctx(levels, pos, bwl, transform_type);
+            const int32_t base_range = level - 1 - NUM_BASE_LEVELS;
+
+            if (base_range < COEFF_BASE_RANGE) {
+                cost += cost_literal + coeff_costs->lps_cost[ctx][base_range]
+                    + coeff_costs->base_cost[coeff_contexts[pos]][3];
+            }
+            else {
+                cost += get_golomb_cost(level) + cost_literal
+                    + coeff_costs->lps_cost[ctx][COEFF_BASE_RANGE]
+                    + coeff_costs->base_cost[coeff_contexts[pos]][3];
+            }
+        }
+        else if (level) {
+            cost += cost_literal
+                + coeff_costs->base_cost[coeff_contexts[pos]][level];
+        }
+        else {
+            cost += coeff_costs->base_cost[coeff_contexts[pos]][0];
+        }
+    }
+    return cost;
+}
+
 // Note: don't call this function when eob is 0.
 uint64_t eb_av1_cost_coeffs_txb(
     uint8_t                             allow_update_cdf,
@@ -415,7 +503,7 @@ uint64_t eb_av1_cost_coeffs_txb(
 
     const TxSize txs_ctx = (TxSize)((txsize_sqr_map[transform_size] + txsize_sqr_up_map[transform_size] + 1) >> 1);
     const TxClass tx_class = tx_type_to_class[transform_type];
-    int32_t c, cost;
+    int32_t cost;
     const int32_t bwl = get_txb_bwl(transform_size);
     const int32_t width = get_txb_wide(transform_size);
     const int32_t height = get_txb_high(transform_size);
@@ -537,40 +625,9 @@ uint64_t eb_av1_cost_coeffs_txb(
         return 0;
     }
 
-    for (c = eob - 1; c >= 0; --c) {
-        const int32_t pos = scan[c];
-        const TranLow v = qcoeff[pos];
-        const int32_t is_nz = (v != 0);
-        const int32_t level = abs(v);
-        const int32_t coeff_ctx = coeff_contexts[pos];
+    cost += av1_cost_coeffs_txb_loop_cost_eob(eob, scan, qcoeff,
+        coeff_contexts, coeff_costs, dc_sign_ctx, levels, bwl, transform_type);
 
-        if (c == eob - 1) {
-            assert((AOMMIN(level, 3) - 1) >= 0);
-            cost += coeff_costs->base_eob_cost[coeff_ctx][AOMMIN(level, 3) - 1];
-        }
-        else
-            cost += coeff_costs->base_cost[coeff_ctx][AOMMIN(level, 3)];
-        if (is_nz) {
-            const int32_t sign = (v < 0) ? 1 : 0;
-            // sign bit cost
-            if (c == 0)
-                cost += coeff_costs->dc_sign_cost[dc_sign_ctx][sign];
-            else
-                cost += av1_cost_literal(1);
-            if (level > NUM_BASE_LEVELS) {
-                int32_t ctx;
-                ctx = get_br_ctx(levels, pos, bwl, transform_type);
-
-                const int32_t base_range = level - 1 - NUM_BASE_LEVELS;
-                if (base_range < COEFF_BASE_RANGE)
-                    cost += coeff_costs->lps_cost[ctx][base_range];
-                else
-                    cost += coeff_costs->lps_cost[ctx][COEFF_BASE_RANGE];
-                if (level >= 1 + NUM_BASE_LEVELS + COEFF_BASE_RANGE)
-                    cost += get_golomb_cost(level);
-            }
-        }
-    }
     return cost;
 }
 /*static*/ void model_rd_from_sse(
@@ -1184,7 +1241,6 @@ static INLINE int16_t Av1ModeContextAnalyzer(
         newmv_ctx, COMP_NEWMV_CTXS - 1)];
     return comp_ctx;
 }
-#if COMP_MODE
 
 int get_comp_index_context_enc(
     PictureParentControlSet   *pcs_ptr,
@@ -1274,6 +1330,13 @@ uint32_t get_compound_mode_rate(
 
     return comp_rate;
 }
+    #if II_COMP_FLAG
+int is_interintra_wedge_used(BlockSize sb_type);
+int svt_is_interintra_allowed(
+    uint8_t enable_inter_intra,
+    BlockSize sb_type,
+    PredictionMode mode,
+    MvReferenceFrame ref_frame[2]);
 #endif
 uint64_t av1_inter_fast_cost(
     CodingUnit            *cu_ptr,
@@ -1492,9 +1555,32 @@ uint64_t av1_inter_fast_cost(
         }
     }
 
-    // NM - To be added when the intrainter mode is adopted
-    //  read_interintra_mode(is_compound)
+#if II_COMP_FLAG
+    if (md_pass > 0) {
 
+        // inter intra mode rate
+        if (picture_control_set_ptr->parent_pcs_ptr->frm_hdr.reference_mode != COMPOUND_REFERENCE &&
+            picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->seq_header.enable_interintra_compound &&
+            svt_is_interintra_allowed(picture_control_set_ptr->parent_pcs_ptr->enable_inter_intra,blk_geom->bsize, candidate_ptr->inter_mode, rf)) {
+            const int interintra = candidate_ptr->is_interintra_used;
+            const int bsize_group = size_group_lookup[blk_geom->bsize];
+
+            interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->inter_intra_fac_bits[bsize_group][candidate_ptr->is_interintra_used];
+
+            if (interintra) {
+                interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->inter_intra_mode_fac_bits[bsize_group][candidate_ptr->interintra_mode];
+
+                if (is_interintra_wedge_used(blk_geom->bsize)) {
+                    interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->wedge_inter_intra_fac_bits[blk_geom->bsize][candidate_ptr->use_wedge_interintra];
+
+                    if (candidate_ptr->use_wedge_interintra) {
+                        interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->wedge_idx_fac_bits[blk_geom->bsize][candidate_ptr->interintra_wedge_index];
+                    }
+                }
+            }
+        }
+    }
+#endif
     EbBool is_inter = inter_mode >= SINGLE_INTER_MODE_START && inter_mode < SINGLE_INTER_MODE_END;
     if (is_inter
         && frm_hdr->is_motion_mode_switchable
@@ -1521,7 +1607,6 @@ uint64_t av1_inter_fast_cost(
             interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->motion_mode_fac_bits[bsize][motion_mode_rd];
         }
     }
-#if COMP_MODE
     //this func return 0 if masked=0 and distance=0
     interModeBitsNum += get_compound_mode_rate(
         md_pass,
@@ -1532,7 +1617,6 @@ uint64_t av1_inter_fast_cost(
         picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr,
         picture_control_set_ptr
     );
-#endif
     // NM - To be added when the overlappable mode is adopted
     //    read_compound_type(is_compound)
     // NM - To be added when switchable filter is adopted
@@ -1743,16 +1827,6 @@ EbErrorType av1_tu_estimate_coeff_bits(
     return return_error;
 }
 
-uint64_t estimate_tx_size_bits(
-    PictureControlSet       *pcsPtr,
-    uint32_t                 cu_origin_x,
-    uint32_t                 cu_origin_y,
-    CodingUnit               *cu_ptr,
-    const BlockGeom          *blk_geom,
-    NeighborArrayUnit        *txfm_context_array,
-    uint8_t                   tx_depth,
-    MdRateEstimationContext  *md_rate_estimation_ptr);
-
 /*********************************************************************************
 * av1_intra_full_cost function is used to estimate the cost of an intra candidate mode
 * for full mode decisoion module.
@@ -1843,19 +1917,7 @@ EbErrorType Av1FullCost(
 
     rate = lumaRate + chromaRate + coeffRate;
 
-    if (candidate_buffer_ptr->candidate_ptr->block_has_coeff) {
-        uint64_t tx_size_bits = estimate_tx_size_bits(
-            picture_control_set_ptr,
-            context_ptr->cu_origin_x,
-            context_ptr->cu_origin_y,
-            context_ptr->cu_ptr,
-            context_ptr->blk_geom,
-            context_ptr->txfm_context_array,
-            candidate_buffer_ptr->candidate_ptr->tx_depth,
-            context_ptr->md_rate_estimation_ptr);
-
-        rate += tx_size_bits;
-    }
+    // To do: estimate the cost of tx size = tx_size_bits
 
     // Assign full cost
     *(candidate_buffer_ptr->full_cost_ptr) = RDCOST(lambda, rate, totalDistortion);
@@ -1966,19 +2028,7 @@ EbErrorType  Av1MergeSkipFullCost(
 
     mergeRate += coeffRate;
 
-    if (candidate_buffer_ptr->candidate_ptr->block_has_coeff) {
-        uint64_t tx_size_bits = estimate_tx_size_bits(
-            picture_control_set_ptr,
-            context_ptr->cu_origin_x,
-            context_ptr->cu_origin_y,
-            context_ptr->cu_ptr,
-            context_ptr->blk_geom,
-            context_ptr->txfm_context_array,
-            candidate_buffer_ptr->candidate_ptr->tx_depth,
-            context_ptr->md_rate_estimation_ptr);
-
-        mergeRate += tx_size_bits;
-    }
+    // To do: estimate the cost of tx size = tx_size_bits
 
     mergeDistortion = (mergeLumaSse + mergeChromaSse);
 

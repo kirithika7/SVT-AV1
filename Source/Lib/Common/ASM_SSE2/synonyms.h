@@ -42,6 +42,33 @@ static INLINE void xx_storeu_128(void *const a, const __m128i v) {
     _mm_storeu_si128((__m128i *)a, v);
 }
 
+static INLINE __m128i _mm_loadh_epi64(const void *const p, const __m128i s) {
+    return _mm_castpd_si128(_mm_loadh_pd(_mm_castsi128_pd(s), (double *)p));
+}
+
+static INLINE void _mm_storeh_epi64(__m128i *const p, const __m128i x) {
+    _mm_storeh_pd((double *)p, _mm_castsi128_pd(x));
+}
+
+static INLINE __m128i load8bit_8x2_sse2(const void *const src,
+    const uint32_t strideInByte)
+{
+    const __m128i s = _mm_loadl_epi64((__m128i *)src);
+    return _mm_loadh_epi64((__m128i *)((uint8_t *)src + strideInByte), s);
+}
+
+static INLINE __m128i load_u8_8x2_sse2(const uint8_t *const src,
+    const uint32_t stride)
+{
+    return load8bit_8x2_sse2(src, sizeof(*src) * stride);
+}
+
+static INLINE __m128i load_u16_4x2_sse2(const uint16_t *const src,
+    const uint32_t stride)
+{
+    return load8bit_8x2_sse2(src, sizeof(*src) * stride);
+}
+
 // The _mm_set_epi64x() intrinsic is undefined for some Visual Studio
 // compilers. The following function is equivalent to _mm_set_epi64x()
 // acting on 32-bit integers.
@@ -103,6 +130,15 @@ static INLINE __m128i xx_roundn_epi16(__m128i v_val_d, int32_t bits) {
     return _mm_srai_epi16(v_tmp_d, bits);
 }
 
+// This fucntion will fail gcc Linux ABI build
+// Tunraround is to replace the core of the fucntion in each call
+
+//static INLINE __m256i yy_roundn_epu16(__m256i v_val_w, int bits) {
+//  const __m256i v_s_w = _mm256_srli_epi16(v_val_w, bits - 1);
+//  return _mm256_avg_epu16(v_s_w, _mm256_setzero_si256());
+//}
+//
+
 // Note:
 // _mm256_insert_epi16 intrinsics is available from vs2017.
 // We define this macro for vs2015 and earlier. The
@@ -113,8 +149,7 @@ static INLINE __m128i xx_roundn_epi16(__m128i v_val_d, int32_t bits) {
 // d: int16_t,
 // indx: imm8 (0 - 15)
 //#if _MSC_VER <= 1900
-#ifdef _WIN32
-#if _MSC_VER < 1910
+#if defined(_MSC_VER) && _MSC_VER < 1910
 #define _mm256_insert_epi16(a, d, indx)                                      \
   _mm256_insertf128_si256(                                                   \
       a,                                                                     \
@@ -134,7 +169,6 @@ static INLINE __m256i _mm256_insert_epi32(__m256i a, int32_t b, const int32_t i)
     c.m256i_i32[i & 7] = b;
     return c;
 }
-#endif
 #endif
 
 #endif  // AOM_DSP_X86_SYNONYMS_H_

@@ -35,6 +35,7 @@ typedef struct {
 
 #define MAX_COLOR_CONTEXT_HASH 8
 #define NUM_PALETTE_NEIGHBORS 3  // left, top-left and top.
+#define COLOR_MAP_STRIDE 128 // worst case
 
 // Negative values are invalid
 static const int palette_color_index_context_lookup[MAX_COLOR_CONTEXT_HASH +
@@ -673,6 +674,34 @@ static int has_top_right(EbDecHandle *dec_handle, PartitionInfo_t *pi,
     return has_tr;
 }
 
+static INLINE void integer_mv_precision(MV *mv) {
+    int mod = (mv->row % 8);
+    if (mod != 0) {
+        mv->row -= mod;
+        if (abs(mod) > 4) {
+            if (mod > 0) {
+                mv->row += 8;
+            }
+            else {
+                mv->row -= 8;
+            }
+        }
+    }
+
+    mod = (mv->col % 8);
+    if (mod != 0) {
+        mv->col -= mod;
+        if (abs(mod) > 4) {
+            if (mod > 0) {
+                mv->col += 8;
+            }
+            else {
+                mv->col -= 8;
+            }
+        }
+    }
+}
+
 static INLINE void lower_mv_precision(MV *mv, int allow_hp, int is_integer) {
     if (is_integer)
         integer_mv_precision(mv);
@@ -706,7 +735,6 @@ static int add_tpl_ref_mv(EbDecHandle *dec_handle, int mi_row, int mi_col,
     const TemporalMvRef *tpl_mvs = dec_handle->master_frame_buf.tpl_mvs +
         y8 * (frm_header->mi_stride >> 1) + x8;
     const IntMvDec prev_frame_mvs = tpl_mvs->mf_mv0;
-    //&dec_handle->seq_header.order_hint_info, start_frame_order_hint, cur_order_hint
     if (rf[1] == NONE_FRAME) {
         int cur_frame_index = dec_handle->cur_pic_buf[0]->order_hint;
         const EbDecPicBuf *const buf_0 = get_ref_frame_buf(dec_handle, rf[0]);
@@ -1440,7 +1468,7 @@ int read_mv_component(SvtReader *r, NmvComponent *mvcomp, int use_subpel, int us
     return sign ? -mag : mag;
 }
 
-void read_mv(SvtReader *r, MV *mv, MV *ref,
+static INLINE void read_mv(SvtReader *r, MV *mv, MV *ref,
     NmvContext *ctx, MvSubpelPrecision precision) {
     MV diff = kZeroMv;
 
@@ -1670,9 +1698,6 @@ void assign_intrabc_mv(EbDecHandle *dec_handle,
         mi_row, mi_col, r);
 }
 
-static INLINE int is_interintra_wedge_used(BlockSize sb_type) {
-    return wedge_params_lookup[sb_type].bits > 0;
-}
 
 void read_interintra_mode(EbDecHandle *dec_handle,
     ModeInfo_t *mbmi, SvtReader *r)
@@ -1894,7 +1919,8 @@ int has_overlappable_cand(EbDecHandle *dec_handle, PartitionInfo_t *pi,
     return 0;
 }
 
-static INLINE MotionMode is_motion_mode_allowed(EbDecHandle *dec_handle, GlobalMotionParams *gm_params, PartitionInfo_t *pi, int mi_row,
+static INLINE MotionMode is_motion_mode_allowed(EbDecHandle *dec_handle,
+    GlobalMotionParams *gm_params, PartitionInfo_t *pi, int mi_row,
     int mi_col, int allow_warped_motion)
 {
     ModeInfo_t *mbmi = pi->mi;
@@ -1957,15 +1983,6 @@ MotionMode read_motion_mode(EbDecHandle *dec_handle,
     }
 }
 
-
-static INLINE int is_comp_ref_allowed(BlockSize bsize) {
-    return AOMMIN(block_size_wide[bsize], block_size_high[bsize]) >= 8;
-}
-
-static INLINE int is_masked_compound_type(CompoundType type) {
-    return (type == COMPOUND_WEDGE || type == COMPOUND_DIFFWTD);
-}
-
 static INLINE int is_interinter_compound_used(CompoundType type, BlockSize sb_type) {
     const int comp_allowed = is_comp_ref_allowed(sb_type);
     switch (type) {
@@ -1991,20 +2008,26 @@ static INLINE int is_any_masked_compound_used(BlockSize sb_type) {
     return 0;
 }
 
-static INLINE int get_comp_group_idx_context(const PartitionInfo_t *xd) {
+static INLINE int get_comp_group_idx_context(ParseCtxt *parse_ctxt,
+    const PartitionInfo_t *xd)
+{
     const ModeInfo_t *const above_mi = xd->above_mbmi;
     const ModeInfo_t *const left_mi = xd->left_mbmi;
     int above_ctx = 0, left_ctx = 0;
 
     if (above_mi) {
-        if (has_second_ref(above_mi))
-            above_ctx = above_mi->inter_compound.comp_group_idx;
+        if (has_second_ref(above_mi)) {
+            above_ctx = parse_ctxt->parse_nbr4x4_ctxt.
+                above_comp_grp_idx[xd->mi_col];
+        }
         else if (above_mi->ref_frame[0] == ALTREF_FRAME)
             above_ctx = 3;
     }
     if (left_mi) {
-        if (has_second_ref(left_mi))
-            left_ctx = left_mi->inter_compound.comp_group_idx;
+        if (has_second_ref(left_mi)) {
+            left_ctx = parse_ctxt->parse_nbr4x4_ctxt.
+                left_comp_grp_idx[xd->mi_row - parse_ctxt->sb_row_mi];
+        }
         else if (left_mi->ref_frame[0] == ALTREF_FRAME)
             left_ctx = 3;
     }
@@ -2039,14 +2062,14 @@ int get_comp_index_context(EbDecHandle *dec_handle, PartitionInfo_t *pi) {
 
     if (above_mi != NULL) {
         if (has_second_ref(above_mi))
-            above_ctx = above_mi->inter_compound.compound_idx;
+            above_ctx = above_mi->compound_idx;
         else if (above_mi->ref_frame[0] == ALTREF_FRAME)
             above_ctx = 1;
     }
 
     if (left_mi != NULL) {
         if (has_second_ref(left_mi))
-            left_ctx = left_mi->inter_compound.compound_idx;
+            left_ctx = left_mi->compound_idx;
         else if (left_mi->ref_frame[0] == ALTREF_FRAME)
             left_ctx = 1;
     }
@@ -2054,16 +2077,35 @@ int get_comp_index_context(EbDecHandle *dec_handle, PartitionInfo_t *pi) {
     return above_ctx + left_ctx + 3 * offset;
 }
 
-void read_compound_type(EbDecHandle *dec_handle, PartitionInfo_t *pi, SvtReader *r)
+void update_compound_ctx(EbDecHandle *dec_handle, PartitionInfo_t *pi,
+    uint32_t blk_row, uint32_t blk_col,
+    uint32_t comp_grp_idx)
+{
+    ParseCtxt *parse_ctxt = (ParseCtxt *)dec_handle->pv_parse_ctxt;
+    ParseNbr4x4Ctxt *ngr_ctx = &parse_ctxt->parse_nbr4x4_ctxt;
+
+    const uint32_t bw = mi_size_wide[pi->mi->sb_type];
+    const uint32_t bh = mi_size_high[pi->mi->sb_type];
+
+    int8_t *above_ctx = ngr_ctx->above_comp_grp_idx + blk_col;
+    int8_t *left_ctx = ngr_ctx->left_comp_grp_idx +
+        ((blk_row - parse_ctxt->sb_row_mi) & MAX_MIB_MASK);
+
+    memset(above_ctx, comp_grp_idx, bw);
+    memset(left_ctx, comp_grp_idx, bh);
+}
+
+void read_compound_type(EbDecHandle *dec_handle, PartitionInfo_t *pi,
+    int32_t mi_row, int32_t mi_col, SvtReader *r)
 {
     ModeInfo_t *mbmi = pi->mi;
     BlockSize bsize = mbmi->sb_type;
-    mbmi->inter_compound.comp_group_idx = 0;
-    mbmi->inter_compound.compound_idx = 1;
+    int32_t comp_group_idx = 0;
+    mbmi->compound_idx = 1;
     ParseCtxt *parse_ctxt = (ParseCtxt *)dec_handle->pv_parse_ctxt;
     FRAME_CONTEXT *frm_ctx = &parse_ctxt->cur_tile_ctx;
 
-    if (mbmi->skip_mode) mbmi->inter_compound.type = COMPOUND_AVERAGE;
+    if (mbmi->skip_mode) mbmi->inter_inter_compound.type = COMPOUND_AVERAGE;
 
     if (has_second_ref(mbmi) && !mbmi->skip_mode) {
         // Read idx to indicate current compound inter prediction mode group
@@ -2071,23 +2113,23 @@ void read_compound_type(EbDecHandle *dec_handle, PartitionInfo_t *pi, SvtReader 
             dec_handle->seq_header.enable_masked_compound;
 
         if (masked_compound_used) {
-            const int ctx_comp_group_idx = get_comp_group_idx_context(pi);
-            mbmi->inter_compound.comp_group_idx = svt_read_symbol(
+            const int ctx_comp_group_idx = get_comp_group_idx_context(parse_ctxt, pi);
+            comp_group_idx = svt_read_symbol(
                 r, frm_ctx->comp_group_idx_cdf[ctx_comp_group_idx], 2, ACCT_STR);
         }
 
-        if (mbmi->inter_compound.comp_group_idx == 0) {
+        if (comp_group_idx == 0) {
             if (dec_handle->seq_header.order_hint_info.enable_jnt_comp) {
                 const int comp_index_ctx = get_comp_index_context(dec_handle, pi);
-                mbmi->inter_compound.compound_idx = svt_read_symbol(
+                mbmi->compound_idx = svt_read_symbol(
                     r, frm_ctx->compound_index_cdf[comp_index_ctx], 2, ACCT_STR);
-                mbmi->inter_compound.type =
-                    mbmi->inter_compound.compound_idx ? COMPOUND_AVERAGE : COMPOUND_DISTWTD;
+                mbmi->inter_inter_compound.type =
+                    mbmi->compound_idx ? COMPOUND_AVERAGE : COMPOUND_DISTWTD;
             }
             else {
                 // Distance-weighted compound is disabled, so always use average
-                mbmi->inter_compound.compound_idx = 1;
-                mbmi->inter_compound.type = COMPOUND_AVERAGE;
+                mbmi->compound_idx = 1;
+                mbmi->inter_inter_compound.type = COMPOUND_AVERAGE;
             }
         }
         else {
@@ -2098,32 +2140,27 @@ void read_compound_type(EbDecHandle *dec_handle, PartitionInfo_t *pi, SvtReader 
 
             // compound_diffwtd, wedge
             if (is_interinter_compound_used(COMPOUND_WEDGE, bsize))
-                mbmi->inter_compound.type = COMPOUND_WEDGE +
+                mbmi->inter_inter_compound.type = COMPOUND_WEDGE +
                 svt_read_symbol(r, frm_ctx->compound_type_cdf[bsize],
                     MASKED_COMPOUND_TYPES, ACCT_STR);
             else
-                mbmi->inter_compound.type = COMPOUND_DIFFWTD;
+                mbmi->inter_inter_compound.type = COMPOUND_DIFFWTD;
 
-            if (mbmi->inter_compound.type == COMPOUND_WEDGE) {
+            if (mbmi->inter_inter_compound.type == COMPOUND_WEDGE) {
                 assert(is_interinter_compound_used(COMPOUND_WEDGE, bsize));
-                mbmi->inter_compound.wedge_index =
+                mbmi->inter_inter_compound.wedge_index =
                     svt_read_symbol(r, frm_ctx->wedge_idx_cdf[bsize], 16, ACCT_STR);
-                mbmi->inter_compound.wedge_sign = svt_read_bit(r, ACCT_STR);
+                mbmi->inter_inter_compound.wedge_sign = svt_read_bit(r, ACCT_STR);
             }
             else {
-                assert(mbmi->inter_compound.type == COMPOUND_DIFFWTD);
-                mbmi->inter_compound.mask_type =
+                assert(mbmi->inter_inter_compound.type == COMPOUND_DIFFWTD);
+                mbmi->inter_inter_compound.mask_type =
                     svt_read_literal(r, MAX_DIFFWTD_MASK_BITS, ACCT_STR);
             }
         }
     }
-   /* else {
-        if (mbmi->is_inter_intra)
-            mbmi->inter_compound.type = mbmi->interintra_mode.wedge_interintra ?
-            COMPOUND_WEDGE : COMPOUND_INTRA;
-        else
-            mbmi->inter_compound.type = COMPOUND_AVERAGE;
-    }*/
+
+    update_compound_ctx(dec_handle, pi, mi_row, mi_col, comp_group_idx);
 }
 
 static INLINE int is_nontrans_global_motion(PartitionInfo_t *pi,
@@ -2307,6 +2344,7 @@ void inter_block_mode_info(EbDecHandle *dec_handle, PartitionInfo_t* pi,
 
     IntMvDec ref_mv[2];
     IntMvDec nearestmv[2], nearmv[2];
+    memset(nearestmv, 0, sizeof(nearestmv));
     if (!is_compound && mbmi->mode != GLOBALMV) {
         svt_find_best_ref_mvs(allow_hp, ref_mvs[mbmi->ref_frame[0]], &nearestmv[0],
             &nearmv[0], dec_handle->frame_header.force_integer_mv);
@@ -2371,7 +2409,7 @@ void inter_block_mode_info(EbDecHandle *dec_handle, PartitionInfo_t* pi,
 
     mbmi->motion_mode = read_motion_mode(dec_handle, pi, mi_row, mi_col, r);
 
-    read_compound_type(dec_handle, pi, r);
+    read_compound_type(dec_handle, pi, mi_row, mi_col, r);
 
     if (!av1_is_interp_needed(pi, dec_handle->cur_pic_buf[0]->global_motion)) {
         set_default_interp_filters(mbmi,
@@ -2399,16 +2437,17 @@ void inter_block_mode_info(EbDecHandle *dec_handle, PartitionInfo_t* pi,
     }
 }
 
-int get_palette_color_context(uint8_t color_map[128][128],
-    int r, int c, int palette_size,
-    uint8_t *color_order)
+int get_palette_color_context(
+    uint8_t (*color_map)[COLOR_MAP_STRIDE][COLOR_MAP_STRIDE],
+    int r, int c, int palette_size, uint8_t *color_order)
 {
     // Get color indices of neighbors.
     int color_neighbors[NUM_PALETTE_NEIGHBORS];
-    color_neighbors[0] = (c - 1 >= 0) ? color_map[r][c - 1] : -1;
+    color_neighbors[0] = (c - 1 >= 0) ? (*color_map)[r][c - 1] : -1;
     color_neighbors[1] =
-        (c - 1 >= 0 && r - 1 >= 0) ? color_map[(r - 1)][ c - 1] : -1;
-    color_neighbors[2] = (r - 1 >= 0) ? color_map[(r - 1)][c] : -1;
+        (c - 1 >= 0 && r - 1 >= 0) ? (*color_map)[(r - 1)][c - 1] : -1;
+    color_neighbors[2] = (r - 1 >= 0) ? (*color_map)[(r - 1)][c] : -1;
+
 
     int scores[PALETTE_MAX_SIZE + 10] = { 0 };
     int i;
@@ -2475,15 +2514,15 @@ void palette_tokens(EbDecHandle *dec_handle, PartitionInfo_t *pi,
     int on_screen_width = MIN(block_width, (mi_cols - mi_col) * MI_SIZE);
 
     uint8_t color_order[PALETTE_MAX_SIZE];
-    uint8_t color_map[128][128] = { {0} };
+    uint8_t color_map[COLOR_MAP_STRIDE][COLOR_MAP_STRIDE];
     int sub_x, sub_y;
     for (int plane_itr = 0; plane_itr < MAX_MB_PLANE; plane_itr++) {
         uint8_t palette_size = mbmi->palette_size[plane_itr != 0];
-        if (plane_itr < PLANE_TYPES) {
-            sub_x = plane_itr ? dec_handle->seq_header.
-                color_config.subsampling_x : 0;
-            sub_y = plane_itr ? dec_handle->seq_header.
-                color_config.subsampling_y : 0;
+        sub_x = plane_itr ? dec_handle->seq_header.
+            color_config.subsampling_x : 0;
+        sub_y = plane_itr ? dec_handle->seq_header.
+            color_config.subsampling_y : 0;
+        if (plane_itr < PLANE_TYPES && palette_size) {
             block_height = block_height >> sub_y;
             block_width = block_width >> sub_x;
             on_screen_height = on_screen_height >> sub_y;
@@ -2501,37 +2540,35 @@ void palette_tokens(EbDecHandle *dec_handle, PartitionInfo_t *pi,
             }
 
             if (dec_is_chroma_reference(mi_row, mi_col, bsize, sub_x, sub_y)) {
-                if (palette_size) {
-                    int color_index_map = svt_read_ns_ae(r, palette_size, ACCT_STR);
-                    color_map[0][0] = color_index_map;
-                    for (int i = 1; i < on_screen_height + on_screen_width - 1; i++) {
-                        for (int j = MIN(i, on_screen_width - 1);
-                            j >= MAX(0, i - on_screen_height + 1); j--)
-                        {
-                            int color_ctx = get_palette_color_context(
-                                color_map, (i - j), j, palette_size, color_order);
-                            int palette_color_idx = svt_read_symbol(r, plane_itr ?
-                                frm_ctx->palette_uv_color_index_cdf
-                                [palette_size - PALETTE_MIN_SIZE][color_ctx] :
-                                frm_ctx->palette_y_color_index_cdf
-                                [palette_size - PALETTE_MIN_SIZE][color_ctx],
-                                palette_size, ACCT_STR);
-                            color_map[i - j][j] = color_order[palette_color_idx];
-                        }
-                    }
-                    for (int i = 0; i < on_screen_height; i++) {
-                        for (int j = on_screen_width; j < block_width; j++) {
-                            color_map[i][j] = color_map[i][on_screen_width - 1];
-                        }
-                    }
-                    for (int i = on_screen_height; i < block_height; i++) {
-                        for (int j = 0; j < block_width; j++) {
-                            color_map[i][j] = color_map[on_screen_height - 1][j];
-                        }
+                int color_index_map = svt_read_ns_ae(r, palette_size, ACCT_STR);
+                color_map[0][0] = color_index_map;
+                for (int i = 1; i < on_screen_height + on_screen_width - 1; i++) {
+                    for (int j = MIN(i, on_screen_width - 1);
+                        j >= MAX(0, i - on_screen_height + 1); j--)
+                    {
+                        int color_ctx = get_palette_color_context(
+                            &color_map, (i - j), j, palette_size, color_order);
+                        int palette_color_idx = svt_read_symbol(r, plane_itr ?
+                            frm_ctx->palette_uv_color_index_cdf
+                            [palette_size - PALETTE_MIN_SIZE][color_ctx] :
+                            frm_ctx->palette_y_color_index_cdf
+                            [palette_size - PALETTE_MIN_SIZE][color_ctx],
+                            palette_size, ACCT_STR);
+                        color_map[(i - j)][j] =
+                            color_order[palette_color_idx];
                     }
                 }
-                else {
-                    assert(mbmi->palette_size[plane_itr] == 0);
+                for (int i = 0; i < on_screen_height; i++) {
+                    for (int j = on_screen_width; j < block_width; j++) {
+                        color_map[i][j] =
+                            color_map[i][on_screen_width - 1];
+                    }
+                }
+                for (int i = on_screen_height; i < block_height; i++) {
+                    for (int j = 0; j < block_width; j++) {
+                        color_map[i][j] =
+                            color_map[on_screen_height - 1][j];
+                    }
                 }
             }
         }
