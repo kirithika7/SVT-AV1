@@ -256,12 +256,13 @@ static EbErrorType init_master_frame_ctxt(EbDecHandle  *dec_handle_ptr) {
         // accessing will skip few SB in-between.
         // if rest_unit_size == SB_size then it's straight forward to access
         // every SB level loop restoration filter value.
-        EB_MALLOC_DEC(RestorationUnitInfo *, cur_frame_buf->lr_unit[AOM_PLANE_Y],
-                        (num_sb * sizeof(RestorationUnitInfo)), EB_N_PTR);
-        EB_MALLOC_DEC(RestorationUnitInfo *, cur_frame_buf->lr_unit[AOM_PLANE_U],
-                        (num_sb * sizeof(RestorationUnitInfo)), EB_N_PTR);
-        EB_MALLOC_DEC(RestorationUnitInfo *, cur_frame_buf->lr_unit[AOM_PLANE_V],
-                        (num_sb * sizeof(RestorationUnitInfo)), EB_N_PTR);
+        LRCtxt *lr_ctxt = (LRCtxt *)dec_handle_ptr->pv_lr_ctxt;
+        for (int32_t plane = 0; plane <= AOM_PLANE_V; plane++) {
+            EB_MALLOC_DEC(RestorationUnitInfo *, cur_frame_buf->lr_unit[plane],
+                (num_sb * sizeof(RestorationUnitInfo)), EB_N_PTR);
+            lr_ctxt->lr_unit[plane] = cur_frame_buf->lr_unit[plane];
+            lr_ctxt->lr_stride[plane] = sb_cols;
+        }
     }
 #if FRAME_MI_MAP
     FrameMiMap *frame_mi_map = &master_frame_buf->frame_mi_map;
@@ -408,9 +409,9 @@ static EbErrorType init_lf_ctxt(EbDecHandle  *dec_handle_ptr) {
     /*Boundary checking of mi_row & mi_col are not done while populating,
     so more memory is allocated by alligning to sb_size */
     int32_t aligned_width   = ALIGN_POWER_OF_TWO(seq_header->max_frame_width,
-        seq_header->sb_size_log2);
+        MAX_SB_SIZE_LOG2);
     int32_t aligned_height  = ALIGN_POWER_OF_TWO(seq_header->max_frame_height,
-        seq_header->sb_size_log2);
+        MAX_SB_SIZE_LOG2);
     int32_t mi_cols = aligned_width >> MI_SIZE_LOG2;
     int32_t mi_rows = aligned_height >> MI_SIZE_LOG2;
 

@@ -19,6 +19,17 @@
 extern "C" {
 #endif
 
+#define REF_SCALE_SHIFT 14
+#define REF_NO_SCALE (1 << REF_SCALE_SHIFT)
+#define REF_INVALID_SCALE -1
+
+#define RS_SUBPEL_BITS 6
+#define RS_SUBPEL_MASK ((1 << RS_SUBPEL_BITS) - 1)
+#define RS_SCALE_SUBPEL_BITS 14
+#define RS_SCALE_SUBPEL_MASK ((1 << RS_SCALE_SUBPEL_BITS) - 1)
+#define RS_SCALE_EXTRA_BITS (RS_SCALE_SUBPEL_BITS - RS_SUBPEL_BITS)
+#define RS_SCALE_EXTRA_OFF (1 << (RS_SCALE_EXTRA_BITS - 1))
+
     extern DECLARE_ALIGNED(256, const InterpKernel, sub_pel_filters_8[SUBPEL_SHIFTS]);
     extern DECLARE_ALIGNED(256, const InterpKernel, sub_pel_filters_4[SUBPEL_SHIFTS]);
     extern DECLARE_ALIGNED(256, const InterpKernel, sub_pel_filters_8sharp[SUBPEL_SHIFTS]);
@@ -135,6 +146,26 @@ extern "C" {
         int interstride, const uint8_t *intrapred8, int intrastride, int bd);
 
 #endif //comp_interintra
+
+    void av1_setup_scale_factors_for_frame(ScaleFactors *sf, int other_w,
+        int other_h, int this_w, int this_h);
+
+    static INLINE int av1_is_valid_scale(const struct ScaleFactors *sf) {
+        return sf->x_scale_fp != REF_INVALID_SCALE &&
+            sf->y_scale_fp != REF_INVALID_SCALE;
+    }
+    static INLINE int av1_is_scaled(const struct ScaleFactors *sf) {
+        return av1_is_valid_scale(sf) &&
+            (sf->x_scale_fp != REF_NO_SCALE || sf->y_scale_fp != REF_NO_SCALE);
+    }
+    static INLINE int valid_ref_frame_size(int ref_width, int ref_height,
+        int this_width, int this_height)
+    {
+        return 2 * this_width >= ref_width && 2 * this_height >= ref_height &&
+            this_width <= 16 * ref_width && this_height <= 16 * ref_height;
+    }
+    MV32 av1_scale_mv(const MV *mvq4, int x, int y,
+        const ScaleFactors *sf);
 
     EbErrorType inter_pu_prediction_av1(
         struct ModeDecisionContext           *md_context_ptr,

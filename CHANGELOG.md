@@ -1,5 +1,11 @@
 # Changelog
 
+## [upcoming]
+
+Decoder
+- Decoder SuperRes support
+- Decoder Reference Frame Scaling support
+
 ## [0.7.0] - 2019-09-26
 
 Encoder

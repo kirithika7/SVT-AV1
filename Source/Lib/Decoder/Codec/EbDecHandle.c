@@ -57,6 +57,7 @@ void asmSetConvolveAsmTable(void);
 void init_intra_dc_predictors_c_internal(void);
 void asmSetConvolveHbdAsmTable(void);
 void init_intra_predictors_internal(void);
+void dec_init_intra_predictors_internal(void);
 extern void av1_init_wedge_masks(void);
 
 EbErrorType decode_multiple_obu(EbDecHandle *dec_handle_ptr,
@@ -142,7 +143,7 @@ int svt_dec_out_buf(
         return 0;
     }
 
-    uint32_t wd = dec_handle_ptr->frame_header.frame_size.frame_width;
+    uint32_t wd = dec_handle_ptr->frame_header.frame_size.superres_upscaled_width;
     uint32_t ht = dec_handle_ptr->frame_header.frame_size.frame_height;
     uint32_t i, sx = 0, sy = 0;
 
@@ -495,6 +496,8 @@ EB_API EbErrorType eb_init_decoder(
     asmSetConvolveHbdAsmTable();
 
     init_intra_predictors_internal();
+    dec_init_intra_predictors_internal();
+
     av1_init_wedge_masks();
 
     /************************************

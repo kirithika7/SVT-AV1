@@ -167,10 +167,6 @@ int32_t main(int32_t argc, char* argv[])
     size_t bytes_in_buffer = 0, buffer_size = 0;
 
     // Print Decoder Info
-    printf("\n**WARNING** decoder is not feature complete\n");
-    printf("Current support: intra, inter & post proc filters, ");
-    printf("no super-resolution, no ref scaling\n\n");
-
     printf("-------------------------------------\n");
     printf("SVT-AV1 Decoder\n");
 
@@ -192,7 +188,7 @@ int32_t main(int32_t argc, char* argv[])
         }
 
         assert(config_ptr->max_color_format <= EB_YUV444);
-        assert(config_ptr->max_bit_depth < EB_TWELVE_BIT);
+        assert(config_ptr->max_bit_depth <= EB_TWELVE_BIT);
 
         int enable_md5 = cli.enable_md5;
 
@@ -279,6 +275,8 @@ int32_t main(int32_t argc, char* argv[])
 fail:
     if (cli.inFile) fclose(cli.inFile);
     if (cli.outFile) fclose(cli.outFile);
+
+    free(config_ptr);
 
     return return_error;
 }

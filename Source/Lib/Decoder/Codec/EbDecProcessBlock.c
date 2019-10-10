@@ -29,6 +29,7 @@
 
 #include "EbTransforms.h"
 #include "EbDecLF.h"
+#include "EbDecPicMgr.h"
 
 extern int select_samples(
     MV *mv,
@@ -282,6 +283,12 @@ void decode_block(DecModCtxt *dec_mod_ctxt, int32_t mi_row, int32_t mi_col,
             assert(apply_wm);
             part_info.local_warp_params.invalid = !apply_wm;
         }
+
+        part_info.sf_identity = &dec_handle->sf_identity;
+        for (int ref = 0; ref < 1 + has_second_ref(mode_info); ++ref) {
+            const MvReferenceFrame frame = mode_info->ref_frame[ref];
+            part_info.block_ref_sf[ref] = get_ref_scale_factors(dec_handle, frame);
+        }
     }
 
     if (inter_block)
@@ -394,13 +401,16 @@ void decode_block(DecModCtxt *dec_mod_ctxt, int32_t mi_row, int32_t mi_col,
                         av1_inv_transform_recon8bit(qcoeffs,
                             (uint8_t *)blk_recon_buf, recon_stride,
                             (uint8_t *)blk_recon_buf, recon_stride,
-                            tx_size, tx_type, plane, n_coeffs);
+                            tx_size, tx_type, plane, n_coeffs,
+                            dec_handle->frame_header.
+                            lossless_array[mode_info->segment_id]);
                     else
                         av1_inv_transform_recon(qcoeffs,
                             CONVERT_TO_BYTEPTR(blk_recon_buf), recon_stride,
                             CONVERT_TO_BYTEPTR(blk_recon_buf), recon_stride,
-                            tx_size, recon_picture_buf->bit_depth,
-                            tx_type, plane, n_coeffs);
+                            tx_size, recon_picture_buf->bit_depth - EB_8BIT,
+                            tx_type, plane, n_coeffs, dec_handle->frame_header.
+                            lossless_array[mode_info->segment_id]);
                 }
             }
 

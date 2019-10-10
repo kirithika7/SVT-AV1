@@ -15,7 +15,10 @@ static void mode_decision_context_dctor(EbPtr p)
 
     EB_FREE_ARRAY(obj->ref_best_ref_sq_table);
     EB_FREE_ARRAY(obj->ref_best_cost_sq_table);
-
+#if ENHANCE_ATB
+    EB_FREE_ARRAY(obj->above_txfm_context);
+    EB_FREE_ARRAY(obj->left_txfm_context);
+#endif
 #if NO_ENCDEC //SB128_TODO to upgrade
     int codedLeafIndex;
     for (codedLeafIndex = 0; codedLeafIndex < BLOCK_MAX_COUNT_SB_128; ++codedLeafIndex) {
@@ -25,6 +28,12 @@ static void mode_decision_context_dctor(EbPtr p)
    }
 #endif
     EB_DELETE_PTR_ARRAY(obj->candidate_buffer_ptr_array, MAX_NFL_BUFF);
+
+#if ENHANCE_ATB
+    EB_FREE_ARRAY(obj->scratch_candidate_buffer->candidate_ptr);
+    EB_FREE_ARRAY(obj->scratch_candidate_buffer);
+#endif
+
     EB_DELETE(obj->trans_quant_buffers_ptr);
     if (obj->hbd_mode_decision)
         EB_FREE_ALIGNED_ARRAY(obj->cfl_temp_luma_recon16bit);
@@ -129,6 +138,16 @@ EbErrorType mode_decision_context_ctor(
             &(context_ptr->full_cost_merge_ptr[bufferIndex])
         );
     }
+#if ENHANCE_ATB
+    EB_MALLOC_ARRAY(context_ptr->scratch_candidate_buffer, 1);
+
+    EB_NEW(
+        context_ptr->scratch_candidate_buffer,
+        mode_decision_scratch_candidate_buffer_ctor,
+        context_ptr->hbd_mode_decision ? EB_10BIT : EB_8BIT);
+
+    EB_MALLOC_ARRAY(context_ptr->scratch_candidate_buffer->candidate_ptr, 1);
+#endif
     context_ptr->md_cu_arr_nsq[0].av1xd = NULL;
     context_ptr->md_cu_arr_nsq[0].neigh_left_recon[0] = NULL;
     context_ptr->md_cu_arr_nsq[0].neigh_top_recon[0] = NULL;
@@ -204,6 +223,10 @@ EbErrorType mode_decision_context_ctor(
     }
     EB_MALLOC_ARRAY(context_ptr->ref_best_cost_sq_table, MAX_REF_TYPE_CAND);
     EB_MALLOC_ARRAY(context_ptr->ref_best_ref_sq_table, MAX_REF_TYPE_CAND);
+#if ENHANCE_ATB
+    EB_MALLOC_ARRAY(context_ptr->above_txfm_context, (MAX_SB_SIZE >> MI_SIZE_LOG2));
+    EB_MALLOC_ARRAY(context_ptr->left_txfm_context, (MAX_SB_SIZE >> MI_SIZE_LOG2));
+#endif
     return EB_ErrorNone;
 }
 
@@ -381,6 +404,9 @@ const EbAv1LambdaAssignFunc av1_lambda_assignment_function_table[4] = {
 };
 
 void reset_mode_decision(
+#if EIGHT_PEL_PREDICTIVE_ME
+    SequenceControlSet    *sequence_control_set_ptr,
+#endif
     ModeDecisionContext   *context_ptr,
     PictureControlSet     *picture_control_set_ptr,
     uint32_t                   segment_index)
@@ -424,16 +450,29 @@ void reset_mode_decision(
         reset_mode_decision_neighbor_arrays(picture_control_set_ptr);
     }
 
+#if EIGHT_PEL_PREDICTIVE_ME
+    picture_control_set_ptr->parent_pcs_ptr->frm_hdr.allow_high_precision_mv = picture_control_set_ptr->enc_mode == ENC_M0 &&
+        (sequence_control_set_ptr->input_resolution == INPUT_SIZE_576p_RANGE_OR_LOWER) ? 1 : 0;
+#else
 #if EIGTH_PEL_MV
     picture_control_set_ptr->parent_pcs_ptr->allow_high_precision_mv = picture_control_set_ptr->enc_mode == ENC_M0 &&
         (picture_control_set_ptr->parent_pcs_ptr->is_pan || picture_control_set_ptr->parent_pcs_ptr->is_tilt) ? 1 : 0;
+#endif
 #endif
     EbBool enable_wm;
     if (picture_control_set_ptr->parent_pcs_ptr->sc_content_detected)
         enable_wm = EB_FALSE;
     else
+#if WARP_UPDATE
+        enable_wm = (MR_MODE ||
+        (picture_control_set_ptr->parent_pcs_ptr->enc_mode == ENC_M0 && picture_control_set_ptr->parent_pcs_ptr->is_used_as_reference_flag) ||
+        (picture_control_set_ptr->parent_pcs_ptr->enc_mode <= ENC_M5 && picture_control_set_ptr->parent_pcs_ptr->temporal_layer_index == 0)) ? EB_TRUE : EB_FALSE;
+#else
         enable_wm = (picture_control_set_ptr->parent_pcs_ptr->enc_mode <= ENC_M5) || MR_MODE ? EB_TRUE : EB_FALSE;
+#endif
+
     enable_wm = picture_control_set_ptr->parent_pcs_ptr->temporal_layer_index > 0 ? EB_FALSE : enable_wm;
+
     frm_hdr->allow_warped_motion = enable_wm
         && !(frm_hdr->frame_type == KEY_FRAME || frm_hdr->frame_type == INTRA_ONLY_FRAME)
         && !frm_hdr->error_resilient_mode;
