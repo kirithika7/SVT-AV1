@@ -33,6 +33,17 @@
 extern "C" {
 #endif
 
+#define FIX_ALTREF                   1 // Address ALTREF mismatch between rtime-m0-test and master: fixed actual_future_pics derivation, shut padding of the central frame, fixed end past frame index prior to window shrinking
+#define FIX_NEAREST_NEW              1 // Address NEAREST_NEW mismatch between rtime-m0-test and master: fixed injection and fixed settings
+#define FIX_ESTIMATE_INTRA           1 // Address ESTIMATE_INTRA mismatch between rtime-m0-test and master: fixed settings
+#define FIX_SKIP_REDUNDANT_BLOCK     1 // Address SKIP_REDUNDANT_BLOCK mismatch between rtime-m0-test and master: fixed the action to bypass MD
+#define FIX_COEF_BASED_ATB_SKIP      1 // Address COEF_BASED_ATB_SKIP mismatch between rtime-m0-test and master: reset coeff_based_skip_atb @ each SB
+#define FIX_WM_SETTINGS              1 // Address WM_SETTINGS mismatch between rtime-m0-test and master: fixed settings
+#define FIX_ENABLE_CDF_UPDATE        1 // Address ENABLE_CDF_UPDATE mismatch between rtime-m0-test and master: removed useless update
+#define FIX_SORTING_METHOD           1 // Address SORTING mismatch between rtime-m0-test and master: used same method
+#define FIX_SETTINGS_RESET           1 // Address SEGMENT_RESET mismatch between rtime-m0-test and master: only @ 1st segment
+#define FIX_COMPOUND                 1 // Address COMPOUND mismatch between rtime-m0-test and master: used block size @ the derivation of compound count
+
 #define II_COMP_FLAG 1
 #define PRED_CHANGE                  1 // Change the MRP in 4L Pictures 3, 5 , 7 and 9 use 1 as the reference
 #define PRED_CHANGE_5L               1 // Change the MRP in 5L Pictures 3, 5 , 7 and 9 use 1 as the reference, 11, 13, 15 and 17 use 9 as the reference
