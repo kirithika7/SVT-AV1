@@ -29,7 +29,7 @@
 
 void *eb_aom_memset16(void *dest, int32_t val, size_t length);
 
-int32_t is_inter_block(const MbModeInfo *mbmi);
+int32_t is_inter_block(const BlockModeInfo *mbmi);
 
 // Some basic checks on weights for smooth predictor.
 #define sm_weights_sanity_checks(weights_w, weights_h, weights_scale, \
@@ -57,18 +57,18 @@ PARTITION_SPLIT
 #define MIDRANGE_VALUE_8BIT    128
 #define MIDRANGE_VALUE_10BIT   512
 
-static int is_smooth(const MbModeInfo *mbmi, int plane) {
+int is_smooth(const BlockModeInfo *block_mi, int plane) {
     if (plane == 0) {
-        const PredictionMode mode = mbmi->mode;
+        const PredictionMode mode = block_mi->mode;
         return (mode == SMOOTH_PRED || mode == SMOOTH_V_PRED ||
             mode == SMOOTH_H_PRED);
     }
     else {
         // uv_mode is not set for inter blocks, so need to explicitly
         // detect that case.
-        if (is_inter_block(mbmi)) return 0;
+        if (is_inter_block(block_mi)) return 0;
 
-        const UvPredictionMode uv_mode = mbmi->uv_mode;
+        const UvPredictionMode uv_mode = block_mi->uv_mode;
         return (uv_mode == UV_SMOOTH_PRED || uv_mode == UV_SMOOTH_V_PRED ||
             uv_mode == UV_SMOOTH_H_PRED);
     }
@@ -80,14 +80,14 @@ static int get_filt_type(const MacroBlockD *xd, int plane) {
     if (plane == 0) {
         const MbModeInfo *ab = xd->above_mbmi;
         const MbModeInfo *le = xd->left_mbmi;
-        ab_sm = ab ? is_smooth(ab, plane) : 0;
-        le_sm = le ? is_smooth(le, plane) : 0;
+        ab_sm = ab ? is_smooth(&ab->block_mi, plane) : 0;
+        le_sm = le ? is_smooth(&le->block_mi, plane) : 0;
     }
     else {
         const MbModeInfo *ab = xd->chroma_above_mbmi;
         const MbModeInfo *le = xd->chroma_left_mbmi;
-        ab_sm = ab ? is_smooth(ab, plane) : 0;
-        le_sm = le ? is_smooth(le, plane) : 0;
+        ab_sm = ab ? is_smooth(&ab->block_mi, plane) : 0;
+        le_sm = le ? is_smooth(&le->block_mi, plane) : 0;
     }
 
     return (ab_sm || le_sm) ? 1 : 0;
@@ -3633,13 +3633,19 @@ static void build_intra_predictors(
             above_row[-1] = 128;
         left_col[-1] = above_row[-1];
     }
-
+#if FILTER_INTRA_FLAG
+  if (use_filter_intra) {
+    eb_av1_filter_intra_predictor(dst, dst_stride, tx_size, above_row, left_col,
+                               filter_intra_mode);
+    return;
+  }
+#else
     //    if (use_filter_intra) {
     ////        eb_av1_filter_intra_predictor(dst, dst_stride, tx_size, above_row, left_col,
     ////CHKN            filter_intra_mode);
     //        return;
     //    }
-
+#endif
     if (is_dr_mode) {
         int32_t upsample_above = 0;
         int32_t upsample_left = 0;
@@ -3825,13 +3831,20 @@ static void build_intra_predictors_high(
             above_row[-1] = (uint16_t)base;
         left_col[-1] = above_row[-1];
     }
+#if FILTER_INTRA_FLAG
+if (use_filter_intra) {
+    highbd_filter_intra_predictor(dst, dst_stride, tx_size, above_row, left_col,
+                               filter_intra_mode,10);
+    return;
+  }
+#else
     // not added yet
     //if (use_filter_intra) {
     //    highbd_filter_intra_predictor(dst, dst_stride, tx_size, above_row, left_col,
     //        filter_intra_mode, xd->bd);
     //    return;
     //}
-
+#endif
     if (is_dr_mode) {
         int32_t upsample_above = 0;
         int32_t upsample_left = 0;
@@ -4465,7 +4478,11 @@ EbErrorType eb_av1_intra_prediction_cl(
                 mode,                                                                           //PredictionMode mode,
                 plane ? candidate_buffer_ptr->candidate_ptr->angle_delta[PLANE_TYPE_UV] : candidate_buffer_ptr->candidate_ptr->angle_delta[PLANE_TYPE_Y],
                 0,                                                                              //int32_t use_palette,
+#if FILTER_INTRA_FLAG
+                plane ? FILTER_INTRA_MODES : candidate_buffer_ptr->candidate_ptr->filter_intra_mode,
+#else
                 FILTER_INTRA_MODES,                                                             //CHKN FilterIntraMode filter_intra_mode,
+#endif
                 topNeighArray + 1,
                 leftNeighArray + 1,
                 candidate_buffer_ptr->prediction_ptr,                                              //uint8_t *dst,
@@ -4537,7 +4554,11 @@ EbErrorType eb_av1_intra_prediction_cl(
                 mode,                                                                           //PredictionMode mode,
                 plane ? candidate_buffer_ptr->candidate_ptr->angle_delta[PLANE_TYPE_UV] : candidate_buffer_ptr->candidate_ptr->angle_delta[PLANE_TYPE_Y],
                 0,                                                                              //int32_t use_palette,
+#if FILTER_INTRA_FLAG
+                plane ? FILTER_INTRA_MODES : candidate_buffer_ptr->candidate_ptr->filter_intra_mode,
+#else
                 FILTER_INTRA_MODES,                                                             //CHKN FilterIntraMode filter_intra_mode,
+#endif
                 topNeighArray + 1,
                 leftNeighArray + 1,
                 candidate_buffer_ptr->prediction_ptr,                                              //uint8_t *dst,

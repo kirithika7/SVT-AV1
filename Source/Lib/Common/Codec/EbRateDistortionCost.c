@@ -18,10 +18,13 @@
 * Includes
 ***************************************/
 #include "EbRateDistortionCost.h"
+#include "EbCommonUtils.h"
 #include "aom_dsp_rtcd.h"
 
 #include <assert.h>
-
+#if TWO_PASS
+#define FIRST_PASS_COST_PENALTY    20 // The penalty is added in cost calculation of the first pass.
+#endif
 #define AV1_COST_PRECISION          0
 #define MV_COST_WEIGHT              108
 int av1_get_reference_mode_context_new(const MacroBlockD *xd);
@@ -35,14 +38,6 @@ BlockSize GetBlockSize(uint8_t cu_size) {
 }
 
 int av1_allow_intrabc(const Av1Common *const cm);
-int32_t is_chroma_reference(int32_t mi_row, int32_t mi_col, BlockSize bsize,
-    int32_t subsampling_x, int32_t subsampling_y) {
-    const int32_t bw = mi_size_wide[bsize];
-    const int32_t bh = mi_size_high[bsize];
-    int32_t ref_pos = ((mi_row & 0x01) || !(bh & 0x01) || !subsampling_y) &&
-        ((mi_col & 0x01) || !(bw & 0x01) || !subsampling_x);
-    return ref_pos;
-}
 
 uint8_t av1_drl_ctx(const CandidateMv *ref_mv_stack,
     int32_t ref_idx) {
@@ -102,27 +97,6 @@ static INLINE int32_t get_golomb_cost(int32_t abs_qc) {
     return 0;
 }
 
-static INLINE int32_t get_txb_bwl(TxSize tx_size) {
-    tx_size = av1_get_adjusted_tx_size(tx_size);
-    assert(tx_size < TX_SIZES_ALL);
-    return tx_size_wide_log2[tx_size];
-}
-
-static INLINE int32_t get_txb_wide(TxSize tx_size) {
-    tx_size = av1_get_adjusted_tx_size(tx_size);
-    assert(tx_size < TX_SIZES_ALL);
-    return tx_size_wide[tx_size];
-}
-
-static INLINE int32_t get_txb_high(TxSize tx_size) {
-    tx_size = av1_get_adjusted_tx_size(tx_size);
-    assert(tx_size < TX_SIZES_ALL);
-    return tx_size_high[tx_size];
-}
-static INLINE uint8_t *set_levels(uint8_t *const levels_buf, const int32_t width) {
-    return levels_buf + TX_PAD_TOP * (width + TX_PAD_HOR);
-}
-
 void eb_av1_txb_init_levels_c(
     const TranLow *const coeff,
     const int32_t width,
@@ -144,22 +118,22 @@ void eb_av1_txb_init_levels_c(
     }
 }
 
-static const PredictionMode fimode_to_intradir[FILTER_INTRA_MODES] = {
-    DC_PRED, V_PRED, H_PRED, D157_PRED, DC_PRED
-};
 // TODO(angiebird): use this function whenever it's possible
 int32_t Av1TransformTypeRateEstimation(
     uint8_t        allow_update_cdf,
     FRAME_CONTEXT *fc,
     struct ModeDecisionCandidateBuffer    *candidate_buffer_ptr,
     EbBool                                  is_inter,
+#if !FILTER_INTRA_FLAG
     EbBool                                  useFilterIntraFlag,
+#endif
     TxSize                                  transform_size,
     TxType                                  transform_type,
     EbBool                                  reduced_tx_set_used)
 {
+#if !FILTER_INTRA_FLAG
     uint8_t filterIntraMode = 0; // AMIR to check// NM- hardcoded to zero for the moment until we support different intra filtering modes.
-
+#endif
     //const MbModeInfo *mbmi = &xd->mi[0]->mbmi;
     //const int32_t is_inter = is_inter_block(mbmi);
 
@@ -185,8 +159,13 @@ int32_t Av1TransformTypeRateEstimation(
         else {
             if (ext_tx_set > 0) {
                 PredictionMode intra_dir;
+#if FILTER_INTRA_FLAG
+                if (candidate_buffer_ptr->candidate_ptr->filter_intra_mode != FILTER_INTRA_MODES)
+                    intra_dir = fimode_to_intradir[candidate_buffer_ptr->candidate_ptr->filter_intra_mode];
+#else
                 if (useFilterIntraFlag)
                     intra_dir = fimode_to_intradir[filterIntraMode];
+#endif
                 else
                     intra_dir = candidate_buffer_ptr->candidate_ptr->pred_mode;
                 assert(intra_dir < INTRA_MODES);
@@ -205,9 +184,6 @@ int32_t Av1TransformTypeRateEstimation(
     }
     return 0;
 }
-
-const int16_t eb_k_eob_group_start[12] = { 0, 1, 2, 3, 5, 9, 17, 33, 65, 129, 257, 513 };
-const int16_t eb_k_eob_offset_bits[12] = { 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 
 static const int8_t eob_to_pos_small[33] = {
     0, 1, 2,                                        // 0-2
@@ -343,41 +319,6 @@ static int32_t get_eob_cost(int32_t eob, const LvMapEobCost *txb_eob_costs,
         if (offset_bits > 1) eob_cost += av1_cost_literal(offset_bits - 1);
     }
     return eob_cost;
-}
-
-static INLINE int32_t get_br_ctx(const uint8_t *const levels,
-    const int32_t c,  // raster order
-    const int32_t bwl, const TxType tx_type) {
-    const int32_t row = c >> bwl;
-    const int32_t col = c - (row << bwl);
-    const int32_t stride = (1 << bwl) + TX_PAD_HOR;
-    const TxClass tx_class = tx_type_to_class[tx_type];
-    const int32_t pos = row * stride + col;
-    int32_t mag = levels[pos + 1];
-    mag += levels[pos + stride];
-    switch (tx_class) {
-    case TX_CLASS_2D:
-        mag += levels[pos + stride + 1];
-        mag = AOMMIN((mag + 1) >> 1, 6);
-        if (c == 0) return mag;
-        if ((row < 2) && (col < 2)) return mag + 7;
-        break;
-    case TX_CLASS_HORIZ:
-        mag += levels[pos + 2];
-        mag = AOMMIN((mag + 1) >> 1, 6);
-        if (c == 0) return mag;
-        if (col == 0) return mag + 7;
-        break;
-    case TX_CLASS_VERT:
-        mag += levels[pos + (stride << 1)];
-        mag = AOMMIN((mag + 1) >> 1, 6);
-        if (c == 0) return mag;
-        if (row == 0) return mag + 7;
-        break;
-    default: break;
-    }
-
-    return mag + 14;
 }
 
 static INLINE int32_t av1_cost_skip_txb(
@@ -532,7 +473,9 @@ uint64_t eb_av1_cost_coeffs_txb(
             ec_ctx,
             candidate_buffer_ptr,
             candidate_buffer_ptr->candidate_ptr->type == INTER_MODE ? EB_TRUE : EB_FALSE,
+#if !FILTER_INTRA_FLAG
             EB_FALSE, // NM - Hardcoded to false for the moment until we support the intra filtering
+#endif
             transform_size,
             transform_type,
             reducedTransformSetFlag);
@@ -630,6 +573,10 @@ uint64_t eb_av1_cost_coeffs_txb(
 
     return cost;
 }
+#if FILTER_INTRA_FLAG
+ int av1_filter_intra_allowed_bsize(uint8_t enable_filter_intra, BlockSize bs);
+ int av1_filter_intra_allowed(uint8_t   enable_filter_intra, BlockSize bsize, uint32_t  mode);
+#endif
 /*static*/ void model_rd_from_sse(
     BlockSize bsize,
     int16_t quantizer,
@@ -720,6 +667,9 @@ uint64_t av1_intra_fast_cost(
     uint64_t intraModeBitsNum = 0;
     uint64_t intraLumaModeBitsNum = 0;
     uint64_t intraLumaAngModeBitsNum = 0;
+#if FILTER_INTRA_FLAG
+    uint64_t intra_filter_mode_bits_num = 0;
+#endif
     uint64_t intraChromaModeBitsNum = 0;
     uint64_t intraChromaAngModeBitsNum = 0;
     uint64_t skipModeRate = 0;
@@ -746,7 +696,14 @@ uint64_t av1_intra_fast_cost(
         assert((intra_mode - V_PRED) >= 0);
         intraLumaAngModeBitsNum = candidate_ptr->md_rate_estimation_ptr->angle_delta_fac_bits[intra_mode - V_PRED][MAX_ANGLE_DELTA + candidate_ptr->angle_delta[PLANE_TYPE_Y]];
     }
-
+#if FILTER_INTRA_FLAG
+    if (av1_filter_intra_allowed(picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->seq_header.enable_filter_intra, blk_geom->bsize, intra_mode)) {
+       intra_filter_mode_bits_num = candidate_ptr->md_rate_estimation_ptr->filter_intra_fac_bits[blk_geom->bsize][candidate_ptr->filter_intra_mode != FILTER_INTRA_MODES];
+        if (candidate_ptr->filter_intra_mode != FILTER_INTRA_MODES) {
+            intra_filter_mode_bits_num += candidate_ptr->md_rate_estimation_ptr->filter_intra_mode_fac_bits[candidate_ptr->filter_intra_mode];
+        }
+    }
+#endif
     // NM- Harcoded assuming luma mode is equal to chroma mode
     //if (!cm->seq_params.monochrome &&
     //    is_chroma_reference(mi_row, mi_col, bsize, xd->plane[1].subsampling_x,
@@ -785,7 +742,11 @@ uint64_t av1_intra_fast_cost(
     }
 
     uint32_t isInterRate = picture_control_set_ptr->slice_type != I_SLICE ? candidate_ptr->md_rate_estimation_ptr->intra_inter_fac_bits[cu_ptr->is_inter_ctx][0] : 0;
+#if FILTER_INTRA_FLAG
+    lumaRate = (uint32_t)(intraModeBitsNum + skipModeRate + intraLumaModeBitsNum + intraLumaAngModeBitsNum + isInterRate + intra_filter_mode_bits_num);
+#else
     lumaRate = (uint32_t)(intraModeBitsNum + skipModeRate + intraLumaModeBitsNum + intraLumaAngModeBitsNum + isInterRate);
+#endif
     if (av1_allow_intrabc(picture_control_set_ptr->parent_pcs_ptr->av1_cm))
         lumaRate += candidate_ptr->md_rate_estimation_ptr->intrabc_fac_bits[candidate_ptr->use_intrabc];
 
@@ -846,12 +807,12 @@ extern void av1_set_ref_frame(MvReferenceFrame *rf,
     int8_t ref_frame_type);
 
 static INLINE int has_second_ref(const MbModeInfo *mbmi) {
-    return mbmi->ref_frame[1] > INTRA_FRAME;
+    return mbmi->block_mi.ref_frame[1] > INTRA_FRAME;
 }
 
 static INLINE int has_uni_comp_refs(const MbModeInfo *mbmi) {
-    return has_second_ref(mbmi) && (!((mbmi->ref_frame[0] >= BWDREF_FRAME) ^
-        (mbmi->ref_frame[1] >= BWDREF_FRAME)));
+    return has_second_ref(mbmi) && (!((mbmi->block_mi.ref_frame[0] >= BWDREF_FRAME) ^
+        (mbmi->block_mi.ref_frame[1] >= BWDREF_FRAME)));
 }
 
 // This function encodes the reference frame
@@ -890,8 +851,8 @@ uint64_t EstimateRefFramesNumBits(
         MbModeInfo *const mbmi = &cu_ptr->av1xd->mi[0]->mbmi;
         MvReferenceFrame refType[2];
         av1_set_ref_frame(refType, ref_frame_type);
-        mbmi->ref_frame[0] = refType[0];
-        mbmi->ref_frame[1] = refType[1];
+        mbmi->block_mi.ref_frame[0] = refType[0];
+        mbmi->block_mi.ref_frame[1] = refType[1];
         //const int is_compound = has_second_ref(mbmi);
         {
             // does the feature use compound prediction or not
@@ -920,7 +881,7 @@ uint64_t EstimateRefFramesNumBits(
 
                 if (comp_ref_type == UNIDIR_COMP_REFERENCE) {
                     //printf("ERROR[AN]: UNIDIR_COMP_REFERENCE not supported\n");
-                    const int bit = mbmi->ref_frame[0] == BWDREF_FRAME;
+                    const int bit = mbmi->block_mi.ref_frame[0] == BWDREF_FRAME;
 
                     const int pred_context = eb_av1_get_pred_context_uni_comp_ref_p(cu_ptr->av1xd);
                     refRateC = candidate_ptr->md_rate_estimation_ptr->uni_comp_ref_fac_bits[pred_context][0][bit];
@@ -928,15 +889,15 @@ uint64_t EstimateRefFramesNumBits(
                     //WRITE_REF_BIT(bit, uni_comp_ref_p);
 
                     if (!bit) {
-                        assert(mbmi->ref_frame[0] == LAST_FRAME);
-                        const int bit1 = mbmi->ref_frame[1] == LAST3_FRAME ||
-                            mbmi->ref_frame[1] == GOLDEN_FRAME;
+                        assert(mbmi->block_mi.ref_frame[0] == LAST_FRAME);
+                        const int bit1 = mbmi->block_mi.ref_frame[1] == LAST3_FRAME ||
+                            mbmi->block_mi.ref_frame[1] == GOLDEN_FRAME;
                         const int pred_context = eb_av1_get_pred_context_uni_comp_ref_p1(cu_ptr->av1xd);
                         refRateD = candidate_ptr->md_rate_estimation_ptr->uni_comp_ref_fac_bits[pred_context][1][bit1];
                         //refRateD = cu_ptr->av1xd->tile_ctx->uni_comp_ref_cdf[pred_context][1];
                         //WRITE_REF_BIT(bit1, uni_comp_ref_p1);
                         if (bit1) {
-                            const int bit2 = mbmi->ref_frame[1] == GOLDEN_FRAME;
+                            const int bit2 = mbmi->block_mi.ref_frame[1] == GOLDEN_FRAME;
                             const int pred_context = eb_av1_get_pred_context_uni_comp_ref_p2(cu_ptr->av1xd);
                             refRateE = candidate_ptr->md_rate_estimation_ptr->uni_comp_ref_fac_bits[pred_context][2][bit2];
 
@@ -945,7 +906,7 @@ uint64_t EstimateRefFramesNumBits(
                         }
                     }
                     //else {
-                    //    assert(mbmi->ref_frame[1] == ALTREF_FRAME);
+                    //    assert(mbmi->block_mi.ref_frame[1] == ALTREF_FRAME);
                     //}
                     refRateBits = refRateA + refRateB + refRateC + refRateD + refRateE + refRateF + refRateG + refRateH + refRateI + refRateJ + refRateK + refRateL + refRateM;
                     return refRateBits;
@@ -954,29 +915,29 @@ uint64_t EstimateRefFramesNumBits(
 
                 assert(comp_ref_type == BIDIR_COMP_REFERENCE);
 
-                const int bit = (mbmi->ref_frame[0] == GOLDEN_FRAME ||
-                    mbmi->ref_frame[0] == LAST3_FRAME);
+                const int bit = (mbmi->block_mi.ref_frame[0] == GOLDEN_FRAME ||
+                    mbmi->block_mi.ref_frame[0] == LAST3_FRAME);
                 const int pred_ctx = eb_av1_get_pred_context_comp_ref_p(cu_ptr->av1xd);
                 refRateF = candidate_ptr->md_rate_estimation_ptr->comp_ref_fac_bits[pred_ctx][0][bit];
                 //refRateF = cu_ptr->av1xd->tile_ctx->comp_ref_cdf[pred_ctx][0];
                 //WRITE_REF_BIT(bit, comp_ref_p);
 
                 if (!bit) {
-                    const int bit1 = mbmi->ref_frame[0] == LAST2_FRAME;
+                    const int bit1 = mbmi->block_mi.ref_frame[0] == LAST2_FRAME;
                     const int pred_context = eb_av1_get_pred_context_comp_ref_p1(cu_ptr->av1xd);
                     refRateG = candidate_ptr->md_rate_estimation_ptr->comp_ref_fac_bits[pred_context][1][bit1];
                     //refRateG = cu_ptr->av1xd->tile_ctx->comp_ref_cdf[pred_context][1];
                     //WRITE_REF_BIT(bit1, comp_ref_p1);
                 }
                 else {
-                    const int bit2 = mbmi->ref_frame[0] == GOLDEN_FRAME;
+                    const int bit2 = mbmi->block_mi.ref_frame[0] == GOLDEN_FRAME;
                     const int pred_context = eb_av1_get_pred_context_comp_ref_p2(cu_ptr->av1xd);
                     refRateH = candidate_ptr->md_rate_estimation_ptr->comp_ref_fac_bits[pred_context][2][bit2];
                     //refRateH = cu_ptr->av1xd->tile_ctx->comp_ref_cdf[pred_context][2];
                     //WRITE_REF_BIT(bit2, comp_ref_p2);
                 }
 
-                const int bit_bwd = mbmi->ref_frame[1] == ALTREF_FRAME;
+                const int bit_bwd = mbmi->block_mi.ref_frame[1] == ALTREF_FRAME;
                 const int pred_ctx_2 = eb_av1_get_pred_context_comp_bwdref_p(cu_ptr->av1xd);
                 refRateI = candidate_ptr->md_rate_estimation_ptr->comp_bwd_ref_fac_bits[pred_ctx_2][0][bit_bwd];
                 //refRateI = cu_ptr->av1xd->tile_ctx->comp_bwdref_cdf[pred_ctx_2][0];
@@ -986,41 +947,41 @@ uint64_t EstimateRefFramesNumBits(
                     const int pred_context = eb_av1_get_pred_context_comp_bwdref_p1(cu_ptr->av1xd);
                     refRateJ = candidate_ptr->md_rate_estimation_ptr->comp_bwd_ref_fac_bits[pred_context][1][refType[1] == ALTREF2_FRAME];
                     //refRateJ = cu_ptr->av1xd->tile_ctx->comp_bwdref_cdf[pred_context][1];
-                    //WRITE_REF_BIT(mbmi->ref_frame[1] == ALTREF2_FRAME, comp_bwdref_p1);
+                    //WRITE_REF_BIT(mbmi->block_mi.ref_frame[1] == ALTREF2_FRAME, comp_bwdref_p1);
                 }
             }
             else {
-                const int bit0 = (mbmi->ref_frame[0] <= ALTREF_FRAME &&
-                    mbmi->ref_frame[0] >= BWDREF_FRAME);
+                const int bit0 = (mbmi->block_mi.ref_frame[0] <= ALTREF_FRAME &&
+                    mbmi->block_mi.ref_frame[0] >= BWDREF_FRAME);
                 refRateK = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p1(cu_ptr->av1xd)][0][bit0];
                 //refRateK = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p1(cu_ptr->av1xd)][0];
                 //WRITE_REF_BIT(bit0, single_ref_p1);
 
                 if (bit0) {
-                    const int bit1 = mbmi->ref_frame[0] == ALTREF_FRAME;
+                    const int bit1 = mbmi->block_mi.ref_frame[0] == ALTREF_FRAME;
                     refRateL = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p2(cu_ptr->av1xd)][1][bit1];
                     //refRateL = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p2(cu_ptr->av1xd)][1];
                     //WRITE_REF_BIT(bit1, single_ref_p2);
                     if (!bit1) {
                         refRateM = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p6(cu_ptr->av1xd)][5][ref_frame_type == ALTREF2_FRAME];
                         //refRateM = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p6(cu_ptr->av1xd)][5];
-                        //WRITE_REF_BIT(mbmi->ref_frame[0] == ALTREF2_FRAME, single_ref_p6);
+                        //WRITE_REF_BIT(mbmi->block_mi.ref_frame[0] == ALTREF2_FRAME, single_ref_p6);
                     }
                 }
                 else {
-                    const int bit2 = (mbmi->ref_frame[0] == LAST3_FRAME ||
-                        mbmi->ref_frame[0] == GOLDEN_FRAME);
+                    const int bit2 = (mbmi->block_mi.ref_frame[0] == LAST3_FRAME ||
+                        mbmi->block_mi.ref_frame[0] == GOLDEN_FRAME);
                     refRateN = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p3(cu_ptr->av1xd)][2][bit2];
                     //refRateN = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p3(cu_ptr->av1xd)][2];
                     //WRITE_REF_BIT(bit2, single_ref_p3);
                     if (!bit2) {
-                        const int bit3 = mbmi->ref_frame[0] != LAST_FRAME;
+                        const int bit3 = mbmi->block_mi.ref_frame[0] != LAST_FRAME;
                         refRateO = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p4(cu_ptr->av1xd)][3][bit3];
                         //refRateO = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p4(cu_ptr->av1xd)][3];
                         //WRITE_REF_BIT(bit3, single_ref_p4);
                     }
                     else {
-                        const int bit4 = mbmi->ref_frame[0] != LAST3_FRAME;
+                        const int bit4 = mbmi->block_mi.ref_frame[0] != LAST3_FRAME;
                         refRateP = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[eb_av1_get_pred_context_single_ref_p5(cu_ptr->av1xd)][4][bit4];
                         //refRateP = cu_ptr->av1xd->tile_ctx->single_ref_cdf[eb_av1_get_pred_context_single_ref_p5(cu_ptr->av1xd)][4];
                         //WRITE_REF_BIT(bit4, single_ref_p5);
@@ -1050,13 +1011,13 @@ uint64_t EstimateRefFramesNumBits(
     // or the segment allows multiple reference frame options
     /*if (segfeature_active(&cm->seg, segment_id, SEG_LVL_REF_FRAME)) {
     assert(!is_compound);
-    assert(mbmi->ref_frame[0] ==
+    assert(mbmi->block_mi.ref_frame[0] ==
     get_segdata(&cm->seg, segment_id, SEG_LVL_REF_FRAME));
     }
     else if (segfeature_active(&cm->seg, segment_id, SEG_LVL_SKIP) ||
     segfeature_active(&cm->seg, segment_id, SEG_LVL_GLOBALMV)) {
     assert(!is_compound);
-    assert(mbmi->ref_frame[0] == LAST_FRAME);
+    assert(mbmi->block_mi.ref_frame[0] == LAST_FRAME);
     }
     else*/ {
     // does the feature use compound prediction or not
@@ -1085,21 +1046,21 @@ uint64_t EstimateRefFramesNumBits(
 
             if (comp_ref_type == UNIDIR_COMP_REFERENCE) {
                 printf("ERROR[AN]: UNIDIR_COMP_REFERENCE not supported\n");
-                //const int32_t bit = mbmi->ref_frame[0] == BWDREF_FRAME;
+                //const int32_t bit = mbmi->block_mi.ref_frame[0] == BWDREF_FRAME;
                 //WRITE_REF_BIT(bit, uni_comp_ref_p);
 
                 //if (!bit) {
-                //    assert(mbmi->ref_frame[0] == LAST_FRAME);
-                //    const int32_t bit1 = mbmi->ref_frame[1] == LAST3_FRAME ||
-                //        mbmi->ref_frame[1] == GOLDEN_FRAME;
+                //    assert(mbmi->block_mi.ref_frame[0] == LAST_FRAME);
+                //    const int32_t bit1 = mbmi->block_mi.ref_frame[1] == LAST3_FRAME ||
+                //        mbmi->block_mi.ref_frame[1] == GOLDEN_FRAME;
                 //    WRITE_REF_BIT(bit1, uni_comp_ref_p1);
                 //    if (bit1) {
-                //        const int32_t bit2 = mbmi->ref_frame[1] == GOLDEN_FRAME;
+                //        const int32_t bit2 = mbmi->block_mi.ref_frame[1] == GOLDEN_FRAME;
                 //        WRITE_REF_BIT(bit2, uni_comp_ref_p2);
                 //    }
                 //}
                 //else {
-                //    assert(mbmi->ref_frame[1] == ALTREF_FRAME);
+                //    assert(mbmi->block_mi.ref_frame[1] == ALTREF_FRAME);
                 //}
 
                 //return;
@@ -1150,7 +1111,7 @@ uint64_t EstimateRefFramesNumBits(
                     2);*/
                 assert(context >= 0 && context < 3);
                 refRateG = candidate_ptr->md_rate_estimation_ptr->comp_bwd_ref_fac_bits[context][1][refType[1] == ALTREF2_FRAME];
-                //WRITE_REF_BIT(mbmi->ref_frame[1] == ALTREF2_FRAME, comp_bwdref_p1);
+                //WRITE_REF_BIT(mbmi->block_mi.ref_frame[1] == ALTREF2_FRAME, comp_bwdref_p1);
             }
         }
         else {
@@ -1179,7 +1140,7 @@ uint64_t EstimateRefFramesNumBits(
                         2);*/
                     assert(context >= 0 && context < 3);
                     refRateJ = candidate_ptr->md_rate_estimation_ptr->single_ref_fac_bits[context][5][ref_frame_type == ALTREF2_FRAME];
-                    //WRITE_REF_BIT(mbmi->ref_frame[0] == ALTREF2_FRAME, single_ref_p6);
+                    //WRITE_REF_BIT(mbmi->block_mi.ref_frame[0] == ALTREF2_FRAME, single_ref_p6);
                 }
             }
             else {
@@ -1250,7 +1211,6 @@ int get_comp_index_context_enc(
     const MacroBlockD *xd);
 int get_comp_group_idx_context_enc(const MacroBlockD *xd);
 int is_any_masked_compound_used(BlockSize sb_type);
-int is_interinter_compound_used(COMPOUND_TYPE type,BlockSize sb_type);
 uint32_t get_compound_mode_rate(
     uint8_t                 md_pass,
     ModeDecisionCandidate *candidate_ptr,
@@ -1268,8 +1228,8 @@ uint32_t get_compound_mode_rate(
     MbModeInfo *const mbmi = &cu_ptr->av1xd->mi[0]->mbmi;
     MvReferenceFrame rf[2];
     av1_set_ref_frame(rf, ref_frame_type);
-    mbmi->ref_frame[0] = rf[0];
-    mbmi->ref_frame[1] = rf[1];
+    mbmi->block_mi.ref_frame[0] = rf[0];
+    mbmi->block_mi.ref_frame[1] = rf[1];
 
     //NOTE  :  Make sure, any cuPtr data is already set before   usage
 
@@ -1600,8 +1560,12 @@ uint64_t av1_inter_fast_cost(
         switch (last_motion_mode_allowed) {
         case SIMPLE_TRANSLATION: break;
         case OBMC_CAUSAL:
+#if OBMC_FLAG
+            interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->motion_mode_fac_bits1[bsize][motion_mode_rd==OBMC_CAUSAL];
+#else
             assert(motion_mode_rd == SIMPLE_TRANSLATION); // TODO: remove when OBMC added
             interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->motion_mode_fac_bits1[bsize][motion_mode_rd];
+#endif
             break;
         default:
             interModeBitsNum += candidate_ptr->md_rate_estimation_ptr->motion_mode_fac_bits[bsize][motion_mode_rd];
@@ -1672,6 +1636,17 @@ uint64_t av1_inter_fast_cost(
 
         rate = lumaRate + chromaRate;
 
+#if TWO_PASS
+        if (picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->use_output_stat_file) {
+            MvReferenceFrame ref_type[2];
+            av1_set_ref_frame(ref_type, candidate_ptr->ref_frame_type);
+            if ((candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME || ref_type[1] != BWDREF_FRAME)) ||
+                (!candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME && ref_type[0] != BWDREF_FRAME))) {
+                rate += rate * FIRST_PASS_COST_PENALTY / 100;
+                totalDistortion += totalDistortion * FIRST_PASS_COST_PENALTY / 100;
+            }
+        }
+#endif
         if (candidate_ptr->merge_flag) {
             uint64_t skipModeRate = candidate_ptr->md_rate_estimation_ptr->skip_mode_fac_bits[skipModeCtx][1];
             if (skipModeRate < rate)
@@ -1686,7 +1661,17 @@ uint64_t av1_inter_fast_cost(
         if (blk_geom->has_uv == 0 && chromaSad != 0)
             printf("av1_inter_fast_cost: Chroma error");
         rate = lumaRate + chromaRate;
-
+#if TWO_PASS
+        if (picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->use_output_stat_file) {
+            MvReferenceFrame ref_type[2];
+            av1_set_ref_frame(ref_type, candidate_ptr->ref_frame_type);
+            if ((candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME || ref_type[1] != BWDREF_FRAME)) ||
+                (!candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME && ref_type[0] != BWDREF_FRAME))) {
+                rate += rate * FIRST_PASS_COST_PENALTY / 100;
+                totalDistortion += totalDistortion * FIRST_PASS_COST_PENALTY / 100;
+            }
+        }
+#endif
         // Assign fast cost
         if (candidate_ptr->merge_flag) {
             uint64_t skipModeRate = candidate_ptr->md_rate_estimation_ptr->skip_mode_fac_bits[skipModeCtx][1];
@@ -1935,6 +1920,18 @@ EbErrorType Av1FullCost(
     if (candidate_buffer_ptr->candidate_ptr->block_has_coeff)
         rate += tx_size_bits;
 #endif
+
+#if TWO_PASS
+    if (picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->use_output_stat_file && candidate_buffer_ptr->candidate_ptr->type != INTRA_MODE) {
+        MvReferenceFrame ref_type[2];
+        av1_set_ref_frame(ref_type, candidate_buffer_ptr->candidate_ptr->ref_frame_type);
+        if ((candidate_buffer_ptr->candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME || ref_type[1] != BWDREF_FRAME)) ||
+            (!candidate_buffer_ptr->candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME && ref_type[0] != BWDREF_FRAME))) {
+            rate += rate * FIRST_PASS_COST_PENALTY / 100;
+            totalDistortion += totalDistortion * FIRST_PASS_COST_PENALTY / 100;
+        }
+    }
+#endif
     // Assign full cost
     *(candidate_buffer_ptr->full_cost_ptr) = RDCOST(lambda, rate, totalDistortion);
 
@@ -2089,7 +2086,17 @@ EbErrorType  Av1MergeSkipFullCost(
     skipDistortion = skipLumaSse + skipChromaSse;
     skipRate = skipModeRate;
     skip_cost = RDCOST(lambda, skipRate, skipDistortion);
-
+#if TWO_PASS
+    if (picture_control_set_ptr->parent_pcs_ptr->sequence_control_set_ptr->use_output_stat_file) {
+        MvReferenceFrame ref_type[2];
+        av1_set_ref_frame(ref_type, candidate_buffer_ptr->candidate_ptr->ref_frame_type);
+        if ((candidate_buffer_ptr->candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME || ref_type[1] != BWDREF_FRAME)) ||
+            (!candidate_buffer_ptr->candidate_ptr->is_compound && (ref_type[0] != LAST_FRAME && ref_type[0] != BWDREF_FRAME))) {
+            skip_cost += skip_cost * FIRST_PASS_COST_PENALTY / 100;
+            merge_cost += merge_cost * FIRST_PASS_COST_PENALTY / 100;
+        }
+    }
+#endif
     // Assigne full cost
     *candidate_buffer_ptr->full_cost_ptr = (skip_cost <= merge_cost) ? skip_cost : merge_cost;
 

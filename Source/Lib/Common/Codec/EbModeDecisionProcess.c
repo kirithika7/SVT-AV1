@@ -31,7 +31,7 @@ static void mode_decision_context_dctor(EbPtr p)
 
 #if ENHANCE_ATB
     EB_FREE_ARRAY(obj->scratch_candidate_buffer->candidate_ptr);
-    EB_FREE_ARRAY(obj->scratch_candidate_buffer);
+    EB_DELETE(obj->scratch_candidate_buffer);
 #endif
 
     EB_DELETE(obj->trans_quant_buffers_ptr);
@@ -139,14 +139,12 @@ EbErrorType mode_decision_context_ctor(
         );
     }
 #if ENHANCE_ATB
-    EB_MALLOC_ARRAY(context_ptr->scratch_candidate_buffer, 1);
-
     EB_NEW(
         context_ptr->scratch_candidate_buffer,
         mode_decision_scratch_candidate_buffer_ctor,
         context_ptr->hbd_mode_decision ? EB_10BIT : EB_8BIT);
 
-    EB_MALLOC_ARRAY(context_ptr->scratch_candidate_buffer->candidate_ptr, 1);
+    EB_ALLOC_PTR_ARRAY(context_ptr->scratch_candidate_buffer->candidate_ptr, 1);
 #endif
     context_ptr->md_cu_arr_nsq[0].av1xd = NULL;
     context_ptr->md_cu_arr_nsq[0].neigh_left_recon[0] = NULL;
@@ -478,6 +476,32 @@ void reset_mode_decision(
         && !(frm_hdr->frame_type == KEY_FRAME || frm_hdr->frame_type == INTRA_ONLY_FRAME)
         && !frm_hdr->error_resilient_mode;
     frm_hdr->is_motion_mode_switchable = frm_hdr->allow_warped_motion;
+#if OBMC_FLAG
+    // OBMC Level                                   Settings
+    // 0                                            OFF
+    // 1                                            OBMC @(MVP, PME and ME) + 16 NICs
+    // 2                                            OBMC @(MVP, PME and ME) + Opt NICs
+    // 3                                            OBMC @(MVP, PME ) + Opt NICs
+    // 4                                            OBMC @(MVP, PME ) + Opt2 NICs
+    if (sequence_control_set_ptr->static_config.enable_obmc) {
+        if (picture_control_set_ptr->parent_pcs_ptr->enc_mode <= ENC_M0)
+            picture_control_set_ptr->parent_pcs_ptr->pic_obmc_mode =
+            picture_control_set_ptr->parent_pcs_ptr->sc_content_detected == 0 && picture_control_set_ptr->slice_type != I_SLICE ? 2 : 0;
+        else
+            picture_control_set_ptr->parent_pcs_ptr->pic_obmc_mode = 0;
+
+#if MR_MODE
+        picture_control_set_ptr->parent_pcs_ptr->pic_obmc_mode =
+            picture_control_set_ptr->parent_pcs_ptr->sc_content_detected == 0 && picture_control_set_ptr->slice_type != I_SLICE ? 1 : 0;
+#endif
+    }
+    else
+        picture_control_set_ptr->parent_pcs_ptr->pic_obmc_mode = 0;
+
+    frm_hdr->is_motion_mode_switchable =
+        frm_hdr->is_motion_mode_switchable || picture_control_set_ptr->parent_pcs_ptr->pic_obmc_mode;
+
+#endif
 #if FIX_SETTINGS_RESET
     }
 #endif

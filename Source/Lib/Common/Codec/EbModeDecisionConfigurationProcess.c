@@ -27,6 +27,7 @@
 #include "EbReferenceObject.h"
 #include "EbModeDecisionProcess.h"
 #include "av1me.h"
+#include "EbCommonUtils.h"
 
 #define MAX_MESH_SPEED 5  // Max speed setting for mesh motion method
 static MeshPattern
@@ -1554,6 +1555,13 @@ EbErrorType signal_derivation_mode_decision_config_kernel_oq(
 
     if(picture_control_set_ptr->update_cdf)
         assert(sequence_control_set_ptr->cdf_mode == 0 && "use cdf_mode 0");
+#if FILTER_INTRA_FLAG
+    //Filter Intra Mode : 0: OFF  1: ON
+    if (sequence_control_set_ptr->seq_header.enable_filter_intra)
+        picture_control_set_ptr->pic_filter_intra_mode = picture_control_set_ptr->parent_pcs_ptr->sc_content_detected == 0 && picture_control_set_ptr->temporal_layer_index == 0 ? 1 : 0;
+    else
+        picture_control_set_ptr->pic_filter_intra_mode = 0;
+#endif
     return return_error;
 }
 
@@ -1710,8 +1718,7 @@ static INLINE int get_relative_dist(const OrderHintInfo *oh, int a, int b) {
     diff = (diff & (m - 1)) - (diff & m);
     return diff;
 }
-#define MAX_OFFSET_WIDTH 64
-#define MAX_OFFSET_HEIGHT 0
+
 static int get_block_position(Av1Common *cm, int *mi_r, int *mi_c, int blk_row,
     int blk_col, MV mv, int sign_bias) {
     const int base_blk_row = (blk_row >> 3) << 3;
@@ -1743,26 +1750,7 @@ static int get_block_position(Av1Common *cm, int *mi_r, int *mi_c, int blk_row,
 
     return 1;
 }
-// Although we assign 32 bit integers, all the values are strictly under 14
-// bits.
-static int div_mult[32] = { 0,    16384, 8192, 5461, 4096, 3276, 2730, 2340,
-                            2048, 1820,  1638, 1489, 1365, 1260, 1170, 1092,
-                            1024, 963,   910,  862,  819,  780,  744,  712,
-                            682,  655,   630,  606,  585,  564,  546,  528 };
-// Consider the use of lookup table for (num / den)
-static void get_mv_projection(MV *output, MV ref, int num, int den) {
-    den = AOMMIN(den, MAX_FRAME_DISTANCE);
-    num = num > 0 ? AOMMIN(num, MAX_FRAME_DISTANCE)
-        : AOMMAX(num, -MAX_FRAME_DISTANCE);
-    const int mv_row =
-        ROUND_POWER_OF_TWO_SIGNED(ref.row * num * div_mult[den], 14);
-    const int mv_col =
-        ROUND_POWER_OF_TWO_SIGNED(ref.col * num * div_mult[den], 14);
-    const int clamp_max = MV_UPP - 1;
-    const int clamp_min = MV_LOW + 1;
-    output->row = (int16_t)clamp(mv_row, clamp_min, clamp_max);
-    output->col = (int16_t)clamp(mv_col, clamp_min, clamp_max);
-}
+
 #define MFMV_STACK_SIZE 3
 
 // Note: motion_filed_projection finds motion vectors of current frame's

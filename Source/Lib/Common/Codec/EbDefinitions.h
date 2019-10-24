@@ -44,9 +44,21 @@ extern "C" {
 #define FIX_SETTINGS_RESET           1 // Address SEGMENT_RESET mismatch between rtime-m0-test and master: only @ 1st segment
 #define FIX_COMPOUND                 1 // Address COMPOUND mismatch between rtime-m0-test and master: used block size @ the derivation of compound count
 
-#define II_COMP_FLAG 1
+#define OBMC_FLAG            1 // OBMC motion mode flag
+#define OBMC_CONVOLVE        1 // to track convolve kernels changes
+
+#define INJECT_NEW_NEAR_NEAR_NEW   1   // Inject NEW_NEAR / NEAR_NEW inter prediction 
+#define FILTER_INTRA_FLAG    1 // Filter intra prediction
+
+
+#define II_COMP_FLAG                 1 // InterIntra compound
+#define PAETH_HBD                    1 // Enbale Intra PAETH for 10bit
+#define INTER_INTER_HBD              1 // Upgrade InterInter compound 10bit
+#define INTER_INTRA_HBD              1 // Upgrade InterIntra compound 10bit
+
 #define PRED_CHANGE                  1 // Change the MRP in 4L Pictures 3, 5 , 7 and 9 use 1 as the reference
 #define PRED_CHANGE_5L               1 // Change the MRP in 5L Pictures 3, 5 , 7 and 9 use 1 as the reference, 11, 13, 15 and 17 use 9 as the reference
+#define PRED_CHANGE_MOD              1 // Reorder the references for MRP
 #define SPEED_OPT                    1 // Speed optimization(s)
 
 #ifndef NON_AVX512_SUPPORT
@@ -63,6 +75,12 @@ extern "C" {
 #define ENHANCE_ATB                       1
 
 #define RDOQ_CHROMA                       1
+
+
+#define TWO_PASS                          1 // Two pass encoding. For now, the encoder is called two times and data transfered using file.
+                                            // Actions in the second pass: Frame and SB QP assignment and temporal filtering strenght change
+#define TWO_PASS_USE_2NDP_ME_IN_1STP      1 // Add a config parameter to the first pass to use the ME settings of the second pass
+
 //FOR DEBUGGING - Do not remove
 #define NO_ENCDEC                         0 // bypass encDec to test cmpliance of MD. complained achieved when skip_flag is OFF. Port sample code from VCI-SW_AV1_Candidate1 branch
 
@@ -144,7 +162,15 @@ enum {
 #define BLOCK_MAX_COUNT_SB_64                     1101  // TODO: reduce alloction for 64x64
 #define MAX_TXB_COUNT                             4 // Maximum number of transform blocks.
 #if II_COMP_FLAG
+#if OBMC_FLAG
+#if FILTER_INTRA_FLAG
+#define MAX_NFL                                 110 // Maximum number of candidates MD can support
+#else
+#define MAX_NFL                                 105 // Maximum number of candidates MD can support
+#endif
+#else
 #define MAX_NFL                                  80
+#endif
 #else
 #define MAX_NFL                                   65
 #endif
@@ -476,6 +502,12 @@ typedef enum CAND_CLASS {
 #if II_COMP_FLAG
     CAND_CLASS_4,
 #endif
+#if OBMC_FLAG
+    CAND_CLASS_5,
+#endif
+#if FILTER_INTRA_FLAG
+    CAND_CLASS_6,
+#endif
     CAND_CLASS_TOTAL
 } CAND_CLASS;
 
@@ -515,7 +547,16 @@ typedef enum
     SWITCHABLE = SWITCHABLE_FILTERS + 1, /* the last switchable one */
     EXTRA_FILTERS = INTERP_FILTERS_ALL - SWITCHABLE_FILTERS,
 }InterpFilter;
+#if OBMC_FLAG
 
+#define AV1_COMMON Av1Common
+enum {
+  USE_2_TAPS_ORIG = 0,  // This is used in temporal filtering.
+  USE_2_TAPS,
+  USE_4_TAPS,
+  USE_8_TAPS,
+} UENUM1BYTE(SUBPEL_SEARCH_TYPE);
+#endif
 typedef struct InterpFilterParams
 {
     const int16_t *filter_ptr;
@@ -1135,6 +1176,11 @@ typedef enum ATTRIBUTE_PACKED
     FILTER_INTRA_MODES,
 } FilterIntraMode;
 
+#if FILTER_INTRA_FLAG
+static const PredictionMode fimode_to_intramode[FILTER_INTRA_MODES] = {
+  DC_PRED, V_PRED, H_PRED, D157_PRED, PAETH_PRED
+};
+#endif
 #define DIRECTIONAL_MODES 8
 #define MAX_ANGLE_DELTA 3
 #define ANGLE_STEP 3
@@ -3235,6 +3281,12 @@ static const uint32_t MD_SCAN_TO_OIS_32x32_SCAN[CU_MAX_COUNT] =
     /*84 */3,
 };
 
+#if TWO_PASS
+typedef struct stat_struct_t
+{
+    uint32_t                        referenced_area[MAX_NUMBER_OF_TREEBLOCKS_PER_PICTURE];
+} stat_struct_t;
+#endif
 #define SC_MAX_LEVEL 2 // 2 sets of HME/ME settings are used depending on the scene content mode
 
 /******************************************************************************

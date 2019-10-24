@@ -1564,7 +1564,11 @@ void perform_intra_coding_loop(
                 mode,
                 pu_ptr->angle_delta[PLANE_TYPE_Y],
                 0,
+#if FILTER_INTRA_FLAG
+                cu_ptr->filter_intra_mode,
+#else
                 FILTER_INTRA_MODES,
+#endif
                 topNeighArray + 1,
                 leftNeighArray + 1,
                 recon_buffer,
@@ -1610,7 +1614,11 @@ void perform_intra_coding_loop(
                 mode,
                 pu_ptr->angle_delta[PLANE_TYPE_Y],
                 0,
+#if FILTER_INTRA_FLAG
+                cu_ptr->filter_intra_mode,
+#else
                 FILTER_INTRA_MODES,
+#endif
                 topNeighArray + 1,
                 leftNeighArray + 1,
                 recon_buffer,
@@ -1661,7 +1669,9 @@ void perform_intra_coding_loop(
             candidate_buffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
             candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
             candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
-
+#if FILTER_INTRA_FLAG
+            candidate_buffer->candidate_ptr->filter_intra_mode = cu_ptr->filter_intra_mode;
+#endif
             const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
             av1_tu_estimate_coeff_bits(
@@ -1927,7 +1937,9 @@ void perform_intra_coding_loop(
             candidate_buffer->candidate_ptr->transform_type_uv = cu_ptr->transform_unit_array[context_ptr->txb_itr].transform_type[PLANE_TYPE_UV];
             candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
             candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
-
+#if FILTER_INTRA_FLAG
+            candidate_buffer->candidate_ptr->filter_intra_mode = cu_ptr->filter_intra_mode; 
+#endif
             const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
             av1_tu_estimate_coeff_bits(
@@ -2049,15 +2061,15 @@ void av1_copy_frame_mvs(PictureControlSet *picture_control_set_ptr, const Av1Com
             mv->mv.as_int = 0;
 
             for (int idx = 0; idx < 2; ++idx) {
-                MvReferenceFrame ref_frame = mi.ref_frame[idx];
+                MvReferenceFrame ref_frame = mi.block_mi.ref_frame[idx];
                 if (ref_frame > INTRA_FRAME) {
                     int8_t ref_idx = picture_control_set_ptr->ref_frame_side[ref_frame];
                     if (ref_idx) continue;
-                    if ((abs(mi.mv[idx].as_mv.row) > REFMVS_LIMIT) ||
-                        (abs(mi.mv[idx].as_mv.col) > REFMVS_LIMIT))
+                    if ((abs(mi.block_mi.mv[idx].as_mv.row) > REFMVS_LIMIT) ||
+                        (abs(mi.block_mi.mv[idx].as_mv.col) > REFMVS_LIMIT))
                         continue;
                     mv->ref_frame = ref_frame;
-                    mv->mv.as_int = mi.mv[idx].as_int;
+                    mv->mv.as_int = mi.block_mi.mv[idx].as_int;
                 }
             }
             mv++;
@@ -2285,7 +2297,9 @@ EB_EXTERN void av1_encode_pass(
                 picture_control_set_ptr,
                 LPF_PICK_FROM_Q);
 
-            eb_av1_loop_filter_frame_init(picture_control_set_ptr, 0, 3);
+            eb_av1_loop_filter_frame_init(
+                &picture_control_set_ptr->parent_pcs_ptr->frm_hdr,
+                &picture_control_set_ptr->parent_pcs_ptr->lf_info, 0, 3);
         }
     }
 #endif
@@ -2520,6 +2534,24 @@ EB_EXTERN void av1_encode_pass(
                                         cu_ptr,
                                         &context_ptr->mv_unit,
                                         1,//intrabc
+#if OBMC_FLAG
+                                        SIMPLE_TRANSLATION,
+#endif
+#if INTER_INTER_HBD
+                                        1,
+                                        &cu_ptr->interinter_comp,
+#endif
+#if INTER_INTRA_HBD
+                                        &sb_ptr->tile_info,
+                                        ep_luma_recon_neighbor_array,
+                                        ep_cb_recon_neighbor_array ,
+                                        ep_cr_recon_neighbor_array ,
+                                        cu_ptr->is_interintra_used,
+                                        cu_ptr->interintra_mode,
+                                        cu_ptr->use_wedge_interintra,
+                                        cu_ptr->interintra_wedge_index,
+
+#endif
                                         context_ptr->cu_origin_x,
                                         context_ptr->cu_origin_y,
                                         blk_geom->bwidth,
@@ -2539,6 +2571,11 @@ EB_EXTERN void av1_encode_pass(
                                     cu_ptr->prediction_unit_array->ref_frame_type,
                                     &context_ptr->mv_unit,
                                     1,// use_intrabc,
+#if OBMC_FLAG
+                                    SIMPLE_TRANSLATION,
+                                    0,
+                                    0,
+#endif
                                     1,
                                     &cu_ptr->interinter_comp,
 #if II_COMP_FLAG
@@ -2616,7 +2653,11 @@ EB_EXTERN void av1_encode_pass(
                                         mode,                                                       //PredictionMode mode,
                                         plane ? pu_ptr->angle_delta[PLANE_TYPE_UV] : pu_ptr->angle_delta[PLANE_TYPE_Y],
                                         0,                                                          //int32_t use_palette,
+#if FILTER_INTRA_FLAG
+                                        plane ? FILTER_INTRA_MODES : cu_ptr->filter_intra_mode,
+#else
                                         FILTER_INTRA_MODES,                                         //CHKN FilterIntraMode filter_intra_mode,
+#endif
                                         topNeighArray + 1,
                                         leftNeighArray + 1,
                                         recon_buffer,                                                //uint8_t *dst,
@@ -2746,6 +2787,9 @@ EB_EXTERN void av1_encode_pass(
                                     candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
                                     candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
 
+#if FILTER_INTRA_FLAG
+                                    candidate_buffer->candidate_ptr->filter_intra_mode = cu_ptr->filter_intra_mode;
+#endif
                                     const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
                                     av1_tu_estimate_coeff_bits(
@@ -3011,6 +3055,24 @@ EB_EXTERN void av1_encode_pass(
                                     cu_ptr,
                                     &context_ptr->mv_unit,
                                     0,// use_intrabc,
+#if OBMC_FLAG
+                                    cu_ptr->prediction_unit_array->motion_mode,
+#endif
+#if INTER_INTER_HBD
+                                    cu_ptr->compound_idx,
+                                    &cu_ptr->interinter_comp,
+#endif
+#if INTER_INTRA_HBD
+                                    &sb_ptr->tile_info,
+                                    ep_luma_recon_neighbor_array,
+                                    ep_cb_recon_neighbor_array ,
+                                    ep_cr_recon_neighbor_array ,
+                                    cu_ptr->is_interintra_used,
+                                    cu_ptr->interintra_mode,
+                                    cu_ptr->use_wedge_interintra,
+                                    cu_ptr->interintra_wedge_index,
+
+#endif
                                     context_ptr->cu_origin_x,
                                     context_ptr->cu_origin_y,
                                     blk_geom->bwidth,
@@ -3030,6 +3092,11 @@ EB_EXTERN void av1_encode_pass(
                                     cu_ptr->prediction_unit_array->ref_frame_type,
                                     &context_ptr->mv_unit,
                                     0,//use_intrabc,
+#if OBMC_FLAG
+                                    cu_ptr->prediction_unit_array->motion_mode,
+                                    0,//use_precomputed_obmc,
+                                    0,
+#endif
                                     cu_ptr->compound_idx,
                                     &cu_ptr->interinter_comp,
 #if II_COMP_FLAG
@@ -3265,7 +3332,9 @@ EB_EXTERN void av1_encode_pass(
                                     // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
                                     candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
                                     candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
-
+#if FILTER_INTRA_FLAG
+                                    candidate_buffer->candidate_ptr->filter_intra_mode = cu_ptr->filter_intra_mode; 
+#endif
                                     const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
                                     //CHKN add updating eobs[] after CBF decision
@@ -3466,7 +3535,9 @@ EB_EXTERN void av1_encode_pass(
                                 // Rate estimation function uses the values from CandidatePtr. The right values are copied from cu_ptr to CandidatePtr
                                 candidate_buffer->candidate_ptr->type = cu_ptr->prediction_mode_flag;
                                 candidate_buffer->candidate_ptr->pred_mode = cu_ptr->pred_mode;
-
+#if FILTER_INTRA_FLAG
+                                candidate_buffer->candidate_ptr->filter_intra_mode = cu_ptr->filter_intra_mode; 
+#endif
                                 const uint32_t coeff1dOffset = context_ptr->coded_area_sb;
 
                                 av1_tu_estimate_coeff_bits(
@@ -3628,6 +3699,103 @@ EB_EXTERN void av1_encode_pass(
                             context_ptr->blk_geom->bheight_uv,
                             context_ptr->blk_geom->has_uv ? PICTURE_BUFFER_DESC_FULL_MASK : PICTURE_BUFFER_DESC_LUMA_MASK,
                             is16bit);
+#if TWO_PASS
+                    // Collect the referenced area per 64x64
+                    if (sequence_control_set_ptr->use_output_stat_file) {
+                        if (cu_ptr->prediction_unit_array->ref_frame_index_l0 >= 0) {
+                            eb_block_on_mutex(refObj0->referenced_area_mutex);
+                            {
+                                if (context_ptr->mv_unit.pred_direction == UNI_PRED_LIST_0 || context_ptr->mv_unit.pred_direction == BI_PRED) {
+                                    //List0-Y
+                                    uint16_t origin_x = MAX(0, (int16_t)context_ptr->cu_origin_x + (context_ptr->mv_unit.mv[REF_LIST_0].x >> 3));
+                                    uint16_t origin_y = MAX(0, (int16_t)context_ptr->cu_origin_y + (context_ptr->mv_unit.mv[REF_LIST_0].y >> 3));
+                                    uint16_t sb_origin_x = origin_x / context_ptr->sb_sz * context_ptr->sb_sz;
+                                    uint16_t sb_origin_y = origin_y / context_ptr->sb_sz * context_ptr->sb_sz;
+                                    uint32_t pic_width_in_sb = (sequence_control_set_ptr->seq_header.max_frame_width + sequence_control_set_ptr->sb_sz - 1) / sequence_control_set_ptr->sb_sz;
+                                    uint16_t sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                    uint16_t width, height, weight;
+                                    weight = 1 << (4 - picture_control_set_ptr->parent_pcs_ptr->temporal_layer_index);
+
+                                    width = MIN(sb_origin_x + context_ptr->sb_sz, origin_x + blk_geom->bwidth) - origin_x;
+                                    height = MIN(sb_origin_y + context_ptr->sb_sz, origin_y + blk_geom->bheight) - origin_y;
+                                    refObj0->stat_struct.referenced_area[sb_index] += width * height*weight;
+
+                                    if (origin_x + blk_geom->bwidth > sb_origin_x + context_ptr->sb_sz) {
+                                        sb_origin_x = (origin_x / context_ptr->sb_sz + 1)* context_ptr->sb_sz;
+                                        sb_origin_y = origin_y / context_ptr->sb_sz * context_ptr->sb_sz;
+                                        sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                        width = origin_x + blk_geom->bwidth - MAX(sb_origin_x, origin_x);
+                                        height = MIN(sb_origin_y + context_ptr->sb_sz, origin_y + blk_geom->bheight) - origin_y;
+                                        refObj0->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                    }
+                                    if (origin_y + blk_geom->bheight > sb_origin_y + context_ptr->sb_sz) {
+                                        sb_origin_x = (origin_x / context_ptr->sb_sz)* context_ptr->sb_sz;
+                                        sb_origin_y = (origin_y / context_ptr->sb_sz + 1) * context_ptr->sb_sz;
+                                        sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                        width = MIN(sb_origin_x + context_ptr->sb_sz, origin_x + blk_geom->bwidth) - origin_x;
+                                        height = origin_y + blk_geom->bheight - MAX(sb_origin_y, origin_y);
+                                        refObj0->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                    }
+                                    if (origin_x + blk_geom->bwidth > sb_origin_x + context_ptr->sb_sz &&
+                                        origin_y + blk_geom->bheight > sb_origin_y + context_ptr->sb_sz) {
+                                        sb_origin_x = (origin_x / context_ptr->sb_sz + 1)* context_ptr->sb_sz;
+                                        sb_origin_y = (origin_y / context_ptr->sb_sz + 1) * context_ptr->sb_sz;
+                                        sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                        width = origin_x + blk_geom->bwidth - MAX(sb_origin_x, origin_x);
+                                        height = origin_y + blk_geom->bheight - MAX(sb_origin_y, origin_y);
+                                        refObj0->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                    }
+                                }
+                            }
+                            eb_release_mutex(refObj0->referenced_area_mutex);
+                        }
+
+                        if (cu_ptr->prediction_unit_array->ref_frame_index_l1 >= 0) {
+                            eb_block_on_mutex(refObj1->referenced_area_mutex);
+                            if (context_ptr->mv_unit.pred_direction == UNI_PRED_LIST_1 || context_ptr->mv_unit.pred_direction == BI_PRED) {
+                                //List1-Y
+                                uint16_t origin_x = MAX(0, (int16_t)context_ptr->cu_origin_x + (context_ptr->mv_unit.mv[REF_LIST_1].x >> 3));
+                                uint16_t origin_y = MAX(0, (int16_t)context_ptr->cu_origin_y + (context_ptr->mv_unit.mv[REF_LIST_1].y >> 3));
+                                uint16_t sb_origin_x = origin_x / context_ptr->sb_sz * context_ptr->sb_sz;
+                                uint16_t sb_origin_y = origin_y / context_ptr->sb_sz * context_ptr->sb_sz;
+                                uint32_t pic_width_in_sb = (sequence_control_set_ptr->seq_header.max_frame_width + sequence_control_set_ptr->sb_sz - 1) / sequence_control_set_ptr->sb_sz;
+                                uint16_t sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                uint16_t width, height, weight;
+                                weight = 1 << (4 - picture_control_set_ptr->parent_pcs_ptr->temporal_layer_index);
+
+                                width = MIN(sb_origin_x + context_ptr->sb_sz, origin_x + blk_geom->bwidth) - origin_x;
+                                height = MIN(sb_origin_y + context_ptr->sb_sz, origin_y + blk_geom->bheight) - origin_y;
+                                refObj1->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                if (origin_x + blk_geom->bwidth > sb_origin_x + context_ptr->sb_sz) {
+                                    sb_origin_x = (origin_x / context_ptr->sb_sz + 1)* context_ptr->sb_sz;
+                                    sb_origin_y = origin_y / context_ptr->sb_sz * context_ptr->sb_sz;
+                                    sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                    width = origin_x + blk_geom->bwidth - MAX(sb_origin_x, origin_x);
+                                    height = MIN(sb_origin_y + context_ptr->sb_sz, origin_y + blk_geom->bheight) - origin_y;
+                                    refObj1->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                }
+                                if (origin_y + blk_geom->bheight > sb_origin_y + context_ptr->sb_sz) {
+                                    sb_origin_x = (origin_x / context_ptr->sb_sz)* context_ptr->sb_sz;
+                                    sb_origin_y = (origin_y / context_ptr->sb_sz + 1) * context_ptr->sb_sz;
+                                    sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                    width = MIN(sb_origin_x + context_ptr->sb_sz, origin_x + blk_geom->bwidth) - origin_x;
+                                    height = origin_y + blk_geom->bheight - MAX(sb_origin_y, origin_y);
+                                    refObj1->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                }
+                                if (origin_x + blk_geom->bwidth > sb_origin_x + context_ptr->sb_sz &&
+                                    origin_y + blk_geom->bheight > sb_origin_y + context_ptr->sb_sz) {
+                                    sb_origin_x = (origin_x / context_ptr->sb_sz + 1)* context_ptr->sb_sz;
+                                    sb_origin_y = (origin_y / context_ptr->sb_sz + 1) * context_ptr->sb_sz;
+                                    sb_index = sb_origin_x / context_ptr->sb_sz + pic_width_in_sb * (sb_origin_y / context_ptr->sb_sz);
+                                    width = origin_x + blk_geom->bwidth - MAX(sb_origin_x, origin_x);
+                                    height = origin_y + blk_geom->bheight - MAX(sb_origin_y, origin_y);
+                                    refObj1->stat_struct.referenced_area[sb_index] += width * height*weight;
+                                }
+                            }
+                            eb_release_mutex(refObj1->referenced_area_mutex);
+                        }
+                    }
+#endif
                 }
                 else {
                     CHECK_REPORT_ERROR_NC(
