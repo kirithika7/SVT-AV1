@@ -52,6 +52,12 @@ extern "C" {
         uint16_t                    y_count_non_zero_coeffs[4];// Store nonzero CoeffNum, per TU. If one TU, stored in 0, otherwise 4 tus stored in 0 to 3
     } MdEncPassCuData;
 
+#if PAL_SUP
+    typedef struct {
+        uint8_t best_palette_color_map[MAX_PALETTE_SQUARE];
+        int kmeans_data_buf[2 * MAX_PALETTE_SQUARE];
+    } PALETTE_BUFFER;
+#endif
     typedef struct MdCodingUnit
     {
         unsigned                    tested_cu_flag                  : 1;   //tells whether this CU is tested in MD.
@@ -148,7 +154,10 @@ extern "C" {
         PredictionUnit               *pu_ptr;
         const PredictionUnitStats    *pu_stats;
         MvUnit                        mv_unit;
-
+#if PAL_SUP
+        PALETTE_BUFFER            palette_buffer;
+        PaletteInfo              palette_cand_array[MAX_PAL_CAND];
+#endif
         // Entropy Coder
         EntropyCoder                 *coeff_est_entropy_coder_ptr;
         MdEncPassCuData               *md_ep_pipe_sb;
@@ -169,7 +178,7 @@ extern "C" {
         uint16_t                        pu_height;
         EbPfMode                        pf_md_mode;
         EbBool                          cu_use_ref_src_flag;
-        EbBool                          hbd_mode_decision;
+        uint8_t                         hbd_mode_decision;
         uint16_t                        qp_index;
         uint64_t                        three_quad_energy;
 #if ENHANCE_ATB
@@ -252,13 +261,27 @@ extern "C" {
         DECLARE_ALIGNED(32, int16_t, diff10[MAX_SB_SQUARE]);
     unsigned int prediction_mse ;
     EbBool      variance_ready;
+
+#if REMOVE_MD_STAGE_1
+    uint32_t                            cand_buff_indices[CAND_CLASS_TOTAL][MAX_NFL_BUFF];
+    uint8_t                             md_staging_mode;
+    uint8_t                             bypass_md_stage_1[CAND_CLASS_TOTAL];
+
+    uint32_t                            md_stage_0_count[CAND_CLASS_TOTAL];
+    uint32_t                            md_stage_1_count[CAND_CLASS_TOTAL];
+    uint32_t                            md_stage_2_count[CAND_CLASS_TOTAL];
+
+    uint32_t                            md_stage_1_total_count;
+    uint32_t                            md_stage_2_total_count;
+
+    uint8_t                             combine_class12; // 1:class1 and 2 are combined.
+#else
     MD_STAGE                            md_stage;
 
     uint32_t                            cand_buff_indices[CAND_CLASS_TOTAL][MAX_NFL_BUFF];
 
 
     uint8_t                             md_staging_mode;
-
     uint8_t                             bypass_stage1[CAND_CLASS_TOTAL];
     uint8_t                             bypass_stage2[CAND_CLASS_TOTAL];
 
@@ -269,9 +292,8 @@ extern "C" {
 
     uint32_t                            md_stage_2_total_count;
     uint32_t                            md_stage_3_total_count;
-
     uint8_t                             combine_class12; //1:class1 and 2 are combined.
-
+#endif
     CAND_CLASS                          target_class;
 
     // fast_loop_core signals
@@ -287,7 +309,11 @@ extern "C" {
     EbBool                              md_staging_skip_rdoq;
 
 #if II_COMP_FLAG
+#if INTERINTRA_HBD
+    DECLARE_ALIGNED(16, uint8_t,      intrapred_buf[INTERINTRA_MODES][2 * 32 * 32]); //MAX block size for inter intra is 32x32
+#else
    DECLARE_ALIGNED(16, uint8_t,        intrapred_buf[INTERINTRA_MODES][32 * 32]); //MAX block size for inter intra is 32x32
+#endif
 #endif
     uint64_t                           *ref_best_cost_sq_table;
     uint32_t                           *ref_best_ref_sq_table;
@@ -299,7 +325,16 @@ extern "C" {
     unsigned int                        source_variance; // input block variance
     unsigned int                        inter_inter_wedge_variance_th;
     uint64_t                            md_exit_th;
+#if INTER_INTRA_CLASS_PRUNING
+    uint64_t                            md_stage_1_cand_prune_th;
+    uint64_t                            md_stage_1_class_prune_th;
+#else
     uint64_t                            dist_base_md_stage_0_count_th;
+#endif
+#endif
+#if INTER_INTRA_CLASS_PRUNING
+    uint64_t                            md_stage_2_cand_prune_th;
+    uint64_t                            md_stage_2_class_prune_th;
 #endif
 #if OBMC_FLAG
     DECLARE_ALIGNED(16, uint8_t, obmc_buff_0[2 * MAX_MB_PLANE * MAX_SB_SQUARE]);
@@ -312,7 +347,21 @@ extern "C" {
     uint8_t                            *above_txfm_context;
     uint8_t                            *left_txfm_context;
 #endif
+#if COMBINE_MDC_NSQ_TABLE
+    PART best_nsq_sahpe1;
+    PART best_nsq_sahpe2;
+    PART best_nsq_sahpe3;
+    PART best_nsq_sahpe4;
+    PART best_nsq_sahpe5;
+    PART best_nsq_sahpe6;
+    PART best_nsq_sahpe7;
+    PART best_nsq_sahpe8;
+#endif
 
+#if LESS_RECTANGULAR_CHECK_LEVEL
+    // square cost weighting for deciding if a/b shapes could be skipped
+    uint32_t sq_weight;
+#endif
     } ModeDecisionContext;
 
     typedef void(*EbAv1LambdaAssignFunc)(
@@ -342,7 +391,11 @@ extern "C" {
         EbColorFormat              color_format,
         EbFifo                    *mode_decision_configuration_input_fifo_ptr,
         EbFifo                    *mode_decision_output_fifo_ptr,
-        EbBool                     enable_hbd_mode_decision);
+        uint8_t                    enable_hbd_mode_decision
+#if PAL_SUP
+        ,uint8_t                 cfg_palette
+#endif
+    );
 
     extern void reset_mode_decision_neighbor_arrays(
         PictureControlSet *picture_control_set_ptr);
@@ -399,8 +452,7 @@ extern "C" {
         ModeDecisionContext           *context_ptr,
         EbPictureBufferDesc           *input_picture_ptr,
         uint32_t                         inputCbOriginIndex,
-        uint32_t                         cuChromaOriginIndex,
-        EbAsm                            asm_type);
+        uint32_t                         cuChromaOriginIndex);
 
 #ifdef __cplusplus
 }

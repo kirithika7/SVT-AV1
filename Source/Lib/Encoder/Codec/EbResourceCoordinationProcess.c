@@ -563,6 +563,11 @@ static void read_stat_from_file(
         referenced_area_has_non_zero += picture_control_set_ptr->stat_struct.referenced_area[sb_addr];
     }
     referenced_area_avg /= sequence_control_set_ptr->sb_total_count;
+#if TWO_PASS_IMPROVEMENT
+    // adjust the reference area based on the intra refresh
+    if (sequence_control_set_ptr->intra_period_length && sequence_control_set_ptr->intra_period_length < TWO_PASS_IR_THRSHLD)
+        referenced_area_avg = referenced_area_avg * (sequence_control_set_ptr->intra_period_length + 1) / TWO_PASS_IR_THRSHLD;
+#endif
     picture_control_set_ptr->referenced_area_avg = referenced_area_avg;
     picture_control_set_ptr->referenced_area_has_non_zero = referenced_area_has_non_zero ? 1 : 0;
 
@@ -693,9 +698,21 @@ void* resource_coordination_kernel(void *input_ptr)
             // Set inter-intra mode      Settings
             // 0                 OFF
             // 1                 ON
+#if INTERINTRA_HBD
+#if M0_OPT
+            sequence_control_set_ptr->seq_header.enable_interintra_compound = MR_MODE || (sequence_control_set_ptr->static_config.enc_mode == ENC_M0 && sequence_control_set_ptr->static_config.screen_content_mode != 1) ? 1 : 0;
+#else
+            sequence_control_set_ptr->seq_header.enable_interintra_compound = (sequence_control_set_ptr->static_config.enc_mode == ENC_M0) ? 1 : 0;
+#endif
+#else
             sequence_control_set_ptr->seq_header.enable_interintra_compound =  (sequence_control_set_ptr->static_config.encoder_bit_depth == EB_10BIT &&
                                                                                 sequence_control_set_ptr->static_config.enable_hbd_mode_decision ) ? 0:
+#if M0_OPT
+                                                                                (sequence_control_set_ptr->static_config.enc_mode == ENC_M0 && sequence_control_set_ptr->static_config.screen_content_mode != 1) ? 1 : 0;
+#else
                                                                                 (sequence_control_set_ptr->static_config.enc_mode == ENC_M0) ? 1 : 0;
+#endif
+#endif
 #else
             sequence_control_set_ptr->seq_header.enable_interintra_compound = (sequence_control_set_ptr->static_config.encoder_bit_depth == EB_10BIT ) ? 0 :
                                                                               (sequence_control_set_ptr->static_config.enc_mode == ENC_M0) ? 1 : 0;
@@ -714,9 +731,13 @@ void* resource_coordination_kernel(void *input_ptr)
             // 0                 OFF: No compond mode search : AVG only
             // 1                 ON: full
 #if INTER_INTER_HBD
+#if COMP_HBD
+            sequence_control_set_ptr->compound_mode = (sequence_control_set_ptr->static_config.enc_mode <= ENC_M4) ? 1 : 0;
+#else
             sequence_control_set_ptr->compound_mode = (sequence_control_set_ptr->static_config.encoder_bit_depth == EB_10BIT &&
                                                        sequence_control_set_ptr->static_config.enable_hbd_mode_decision ) ? 0:
                                                       (sequence_control_set_ptr->static_config.enc_mode <= ENC_M4) ? 1 : 0;
+#endif
 #else
             sequence_control_set_ptr->compound_mode = sequence_control_set_ptr->static_config.encoder_bit_depth == EB_10BIT ? 0 :
                 (sequence_control_set_ptr->static_config.enc_mode <= ENC_M4) ? 1 : 0;

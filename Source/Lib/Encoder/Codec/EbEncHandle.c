@@ -60,7 +60,6 @@
 #include <unistd.h>
 #endif
 
-#define RTCD_C
 #include "aom_dsp_rtcd.h"
 
  /**************************************
@@ -955,6 +954,10 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
         inputData.hbd_mode_decision = enc_handle_ptr->sequence_control_set_instance_array[instance_index]->sequence_control_set_ptr->static_config.enable_hbd_mode_decision;
         inputData.cdf_mode = enc_handle_ptr->sequence_control_set_instance_array[instance_index]->sequence_control_set_ptr->cdf_mode;
         inputData.mfmv = enc_handle_ptr->sequence_control_set_instance_array[instance_index]->sequence_control_set_ptr->mfmv_enabled;
+
+#if PAL_SUP
+        inputData.cfg_palette = enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->static_config.screen_content_mode;
+#endif
         EB_NEW(
             enc_handle_ptr->picture_control_set_pool_ptr_array[instance_index],
             eb_system_resource_ctor,
@@ -1561,6 +1564,25 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
     EB_ALLOC_PTR_ARRAY(enc_handle_ptr->enc_dec_context_ptr_array, enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->enc_dec_process_init_count);
 
     for (processIndex = 0; processIndex < enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->enc_dec_process_init_count; ++processIndex) {
+#if PAL_SUP
+        EB_NEW(
+            enc_handle_ptr->enc_dec_context_ptr_array[processIndex],
+            enc_dec_context_ctor,
+            enc_handle_ptr->enc_dec_tasks_consumer_fifo_ptr_array[processIndex],
+            enc_handle_ptr->enc_dec_results_producer_fifo_ptr_array[processIndex],
+            enc_handle_ptr->enc_dec_tasks_producer_fifo_ptr_array[EncDecPortLookup(ENCDEC_INPUT_PORT_ENCDEC, processIndex)],
+            enc_handle_ptr->picture_demux_results_producer_fifo_ptr_array[
+                enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->source_based_operations_process_init_count +
+                    //1 +
+                    processIndex], // Add port lookup logic here JMJ
+            enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->static_config.screen_content_mode,
+            is16bit,
+            color_format,
+            enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->static_config.enable_hbd_mode_decision,
+            enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->max_input_luma_width,
+            enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->max_input_luma_height
+            );
+#else
         EB_NEW(
             enc_handle_ptr->enc_dec_context_ptr_array[processIndex],
             enc_dec_context_ctor,
@@ -1577,6 +1599,7 @@ EB_API EbErrorType eb_init_encoder(EbComponentType *svt_enc_component)
             enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->max_input_luma_width,
             enc_handle_ptr->sequence_control_set_instance_array[0]->sequence_control_set_ptr->max_input_luma_height
         );
+#endif
     }
 
     // Dlf Contexts
@@ -1823,16 +1846,13 @@ EB_API EbErrorType eb_deinit_handle(
         return_error = eb_av1_enc_component_de_init(svt_enc_component);
 
         free(svt_enc_component);
+#if  defined(__linux__)
+        EB_FREE(lp_group);
+#endif
         eb_decrease_component_count();
     }
     else
         return_error = EB_ErrorInvalidComponent;
-
-    #if  defined(__linux__)
-        if(lp_group != NULL) {
-            EB_FREE(lp_group);
-        }
-    #endif
     return return_error;
 }
 
@@ -1996,8 +2016,11 @@ void SetParamBasedOnInput(SequenceControlSet *sequence_control_set_ptr)
         sequence_control_set_ptr->over_boundary_block_mode = 1;
     else
         sequence_control_set_ptr->over_boundary_block_mode = 0;
-
+#if M0_OPT
+    sequence_control_set_ptr->mfmv_enabled = (uint8_t)(sequence_control_set_ptr->static_config.enc_mode == ENC_M0 && sequence_control_set_ptr->static_config.screen_content_mode != 1) ? 1 : 0;
+#else
     sequence_control_set_ptr->mfmv_enabled = (uint8_t)(sequence_control_set_ptr->static_config.enc_mode == ENC_M0) ? 1 : 0;
+#endif
 
     // Set hbd_mode_decision OFF for high encode modes or bitdepth < 10
     if (sequence_control_set_ptr->static_config.enc_mode > ENC_M0 || sequence_control_set_ptr->static_config.encoder_bit_depth < 10)
@@ -2080,12 +2103,18 @@ void CopyApiFromApp(
     // Local Warped Motion
     sequence_control_set_ptr->static_config.enable_warped_motion = EB_TRUE;
 
+    // Global motion
+    sequence_control_set_ptr->static_config.enable_global_motion = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_global_motion;
+
     // OBMC
     sequence_control_set_ptr->static_config.enable_obmc = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_obmc;
 
+    // RDOQ
+    sequence_control_set_ptr->static_config.enable_rdoq = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_rdoq;
+
     // Filter intra prediction
     sequence_control_set_ptr->static_config.enable_filter_intra = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_filter_intra;
-	
+
     // ME Tools
     sequence_control_set_ptr->static_config.use_default_me_hme = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->use_default_me_hme;
     sequence_control_set_ptr->static_config.enable_hme_flag = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_hme_flag;
@@ -2123,7 +2152,8 @@ void CopyApiFromApp(
     // MD Parameters
     sequence_control_set_ptr->static_config.enable_hbd_mode_decision = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->encoder_bit_depth > 8 ? ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_hbd_mode_decision : 0;
     sequence_control_set_ptr->static_config.constrained_intra = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->constrained_intra;
-
+    sequence_control_set_ptr->static_config.enable_palette = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->enable_palette;
+    sequence_control_set_ptr->static_config.olpd_refinement = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->olpd_refinement;
     // Adaptive Loop Filter
     sequence_control_set_ptr->static_config.tile_rows = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->tile_rows;
     sequence_control_set_ptr->static_config.tile_columns = ((EbSvtAv1EncConfiguration*)pComponentParameterStructure)->tile_columns;
@@ -2205,6 +2235,13 @@ void CopyApiFromApp(
     sequence_control_set_ptr->static_config.altref_strength = pComponentParameterStructure->altref_strength;
     sequence_control_set_ptr->static_config.altref_nframes = pComponentParameterStructure->altref_nframes;
     sequence_control_set_ptr->static_config.enable_overlays = pComponentParameterStructure->enable_overlays;
+
+    sequence_control_set_ptr->static_config.sq_weight = pComponentParameterStructure->sq_weight;
+
+    sequence_control_set_ptr->static_config.md_stage_1_cand_prune_th = pComponentParameterStructure->md_stage_1_cand_prune_th;
+    sequence_control_set_ptr->static_config.md_stage_1_class_prune_th = pComponentParameterStructure->md_stage_1_class_prune_th;
+    sequence_control_set_ptr->static_config.md_stage_2_cand_prune_th = pComponentParameterStructure->md_stage_2_cand_prune_th;
+    sequence_control_set_ptr->static_config.md_stage_2_class_prune_th = pComponentParameterStructure->md_stage_2_class_prune_th;
 
     return;
 }
@@ -2555,6 +2592,28 @@ static EbErrorType VerifySettings(
         return_error = EB_ErrorBadParameter;
     }
 
+    // palette
+    if (config->enable_palette < (int32_t)(-1) || config->enable_palette >6) {
+        SVT_LOG( "Error instance %u: Invalid Palette Mode [0 .. 6], your input: %i\n", channelNumber + 1, config->enable_palette);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    // RDOQ
+    if (config->enable_rdoq != (int8_t)0 && config->enable_rdoq != (int8_t)1 && config->enable_rdoq != (int8_t)-1) {
+        SVT_LOG( "Error instance %u: Invalid RDOQ parameter [-1, 0, 1], your input: %i\n", channelNumber + 1, config->enable_rdoq);
+        return_error = EB_ErrorBadParameter;
+    }
+
+    // mdc refinement
+    if (config->olpd_refinement < (int32_t)(-1) || config->olpd_refinement > 1) {
+        SVT_LOG("Error instance %u: Invalid OLPD Refinement Mode [0 .. 1], your input: %i\n", channelNumber + 1, config->olpd_refinement);
+        return_error = EB_ErrorBadParameter;
+    }
+    else if (config->olpd_refinement == 1 && config->enc_mode >= ENC_M1) {
+        SVT_LOG("Error instance %u: Invalid OLPD Refinement mode for M%d [0], your input: %i\n", channelNumber + 1, config->enc_mode, config->olpd_refinement);
+        return_error = EB_ErrorBadParameter;
+    }
+
     return return_error;
 }
 
@@ -2603,7 +2662,9 @@ EbErrorType eb_svt_enc_init_parameter(
     config_ptr->pred_structure = EB_PRED_RANDOM_ACCESS;
     config_ptr->disable_dlf_flag = EB_FALSE;
     config_ptr->enable_warped_motion = EB_TRUE;
+    config_ptr->enable_global_motion = EB_TRUE;
     config_ptr->enable_obmc = EB_TRUE;
+    config_ptr->enable_rdoq = AUTO_MODE;
     config_ptr->enable_filter_intra = EB_TRUE;
     config_ptr->in_loop_me_flag = EB_TRUE;
     config_ptr->ext_block_flag = EB_FALSE;
@@ -2630,9 +2691,10 @@ EbErrorType eb_svt_enc_init_parameter(
     config_ptr->hme_level2_search_area_in_width_array[1] = 1;
     config_ptr->hme_level2_search_area_in_height_array[0] = 1;
     config_ptr->hme_level2_search_area_in_height_array[1] = 1;
-    config_ptr->enable_hbd_mode_decision = EB_TRUE;
+    config_ptr->enable_hbd_mode_decision = 1;
     config_ptr->constrained_intra = EB_FALSE;
-
+    config_ptr->enable_palette = -1;
+    config_ptr->olpd_refinement = -1;
     // Bitstream options
     //config_ptr->codeVpsSpsPps = 0;
     //config_ptr->codeEosNal = 0;
@@ -2674,6 +2736,13 @@ EbErrorType eb_svt_enc_init_parameter(
     config_ptr->altref_nframes = 7;
     config_ptr->altref_strength = 5;
     config_ptr->enable_overlays = EB_FALSE;
+
+    config_ptr->sq_weight = 100;
+
+    config_ptr->md_stage_1_cand_prune_th = 75;
+    config_ptr->md_stage_1_class_prune_th = 100;
+    config_ptr->md_stage_2_cand_prune_th = 15;
+    config_ptr->md_stage_2_class_prune_th = 25;
 
     return return_error;
 }
@@ -3040,8 +3109,7 @@ static EbErrorType CopyFrameBuffer(
             input_picture_ptr->buffer_bit_inc_y + lumaBufferOffset,
             input_picture_ptr->stride_bit_inc_y,
             lumaWidth,
-            lumaHeight,
-            config->asm_type);
+            lumaHeight);
 
         un_pack2d(
             (uint16_t*)(inputPtr->cb + chromaOffset),
@@ -3051,8 +3119,7 @@ static EbErrorType CopyFrameBuffer(
             input_picture_ptr->buffer_bit_inc_cb + chromaBufferOffset,
             input_picture_ptr->stride_bit_inc_cb,
             chromaWidth,
-            (lumaHeight >> 1),
-            config->asm_type);
+            (lumaHeight >> 1));
 
         un_pack2d(
             (uint16_t*)(inputPtr->cr + chromaOffset),
@@ -3062,8 +3129,7 @@ static EbErrorType CopyFrameBuffer(
             input_picture_ptr->buffer_bit_inc_cr + chromaBufferOffset,
             input_picture_ptr->stride_bit_inc_cr,
             chromaWidth,
-            (lumaHeight >> 1),
-            config->asm_type);
+            (lumaHeight >> 1));
     }
     return return_error;
 }

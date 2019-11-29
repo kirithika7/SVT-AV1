@@ -300,6 +300,9 @@ extern "C" {
         uint8_t inter_tx_size[INTER_TX_SIZE_BUF_LEN];
         uint8_t tx_depth;
         BlockModeInfo block_mi;
+#if PAL_SUP
+        PaletteModeInfo palette_mode_info;
+#endif
     } MbModeInfo;
 
     typedef struct {
@@ -457,7 +460,6 @@ extern "C" {
         unsigned                    prediction_mode_flag    : 2;
         unsigned                    block_has_coeff         : 1;
         unsigned                    split_flag_context      : 2;
-
 #if !ADD_DELTA_QP_SUPPORT
         unsigned                    qp                      : 6;
         signed                      delta_qp                : 8; // can be signed 8bits
@@ -514,6 +516,9 @@ extern "C" {
 #endif
 #if FILTER_INTRA_FLAG
        uint8_t                      filter_intra_mode;
+#endif
+#if PAL_SUP
+       PaletteInfo                          palette_info;
 #endif
     } CodingUnit;
 
@@ -578,6 +583,10 @@ extern "C" {
 
         // Quantized Coefficients
         EbPictureBufferDesc          *quantized_coeff;
+#if MDC_ADAPTIVE_LEVEL
+        uint8_t                       depth_ranking[NUMBER_OF_DEPTH];
+        uint64_t                      depth_cost[NUMBER_OF_DEPTH];
+#endif
         TileInfo tile_info;
     } LargestCodingUnit;
 

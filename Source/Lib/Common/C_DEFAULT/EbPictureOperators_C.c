@@ -9,7 +9,7 @@
 /*********************************
 * Picture Average
 *********************************/
-void picture_average_kernel(
+void picture_average_kernel_c(
     EbByte   src0,
     uint32_t   src0_stride,
     EbByte   src1,
@@ -31,7 +31,7 @@ void picture_average_kernel(
     }
 }
 
-void picture_average_kernel_1line_c(
+void picture_average_kernel1_line_c(
     EbByte   src0,
     EbByte   src1,
     EbByte   dst,

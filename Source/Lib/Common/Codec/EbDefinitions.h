@@ -32,6 +32,28 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#define HBD_CLEAN_UP                 1
+
+#define IFS_8BIT_MD                  1
+
+#define COMP_HBD                     1
+#define INTERINTRA_HBD               1
+#define ATB_HBD                      1
+#define ATB_FIX                      1
+
+#define M0_OPT                       1
+/* Note: shutting the macro PAL_SUP will not give SS as pcs->palette_mode = 0
+   rate estimation is changed for I frame + enabled sc for P (rate estimation
+   is a result changed for P frames)
+*/
+#define PAL_SUP                      1 //Palette prediction support.
+#if PAL_SUP
+#define PAL_CLASS   1
+#endif
+
+#define LESS_RECTANGULAR_CHECK_LEVEL 1 // Shortcut to skip a/b shapes depending on SQ/H/V shape costs
+
+#define INTER_INTRA_CLASS_PRUNING    1
 
 #define FIX_ALTREF                   1 // Address ALTREF mismatch between rtime-m0-test and master: fixed actual_future_pics derivation, shut padding of the central frame, fixed end past frame index prior to window shrinking
 #define FIX_NEAREST_NEW              1 // Address NEAREST_NEW mismatch between rtime-m0-test and master: fixed injection and fixed settings
@@ -47,7 +69,7 @@ extern "C" {
 #define OBMC_FLAG            1 // OBMC motion mode flag
 #define OBMC_CONVOLVE        1 // to track convolve kernels changes
 
-#define INJECT_NEW_NEAR_NEAR_NEW   1   // Inject NEW_NEAR / NEAR_NEW inter prediction 
+#define INJECT_NEW_NEAR_NEAR_NEW   1   // Inject NEW_NEAR / NEAR_NEW inter prediction
 #define FILTER_INTRA_FLAG    1 // Filter intra prediction
 
 
@@ -55,11 +77,13 @@ extern "C" {
 #define PAETH_HBD                    1 // Enbale Intra PAETH for 10bit
 #define INTER_INTER_HBD              1 // Upgrade InterInter compound 10bit
 #define INTER_INTRA_HBD              1 // Upgrade InterIntra compound 10bit
+#define ATB_10_BIT                   1 // Upgrade ATB  10bit
 
 #define PRED_CHANGE                  1 // Change the MRP in 4L Pictures 3, 5 , 7 and 9 use 1 as the reference
 #define PRED_CHANGE_5L               1 // Change the MRP in 5L Pictures 3, 5 , 7 and 9 use 1 as the reference, 11, 13, 15 and 17 use 9 as the reference
 #define PRED_CHANGE_MOD              1 // Reorder the references for MRP
 #define SPEED_OPT                    1 // Speed optimization(s)
+#define GLOBAL_WARPED_MOTION         1 // Global warped motion detection and insertion
 
 #ifndef NON_AVX512_SUPPORT
 #define NON_AVX512_SUPPORT
@@ -68,8 +92,11 @@ extern "C" {
 #define MR_MODE                           0
 
 #define WARP_UPDATE                       1 // Modified Warp settings: ON for MR mode. ON for ref frames in M0
+#define UPDATE_CDEF                       1 // Update bit cost estimation for CDEF filter
 #define EIGTH_PEL_MV                      1
 #define EIGHT_PEL_PREDICTIVE_ME           1
+#define EIGHT_PEL_FIX                     1 // Improve the 8th pel performance by shutting it based on the qindex and bug fixes
+#define HIGH_PRECISION_MV_QTHRESH         150
 #define COMP_INTERINTRA                   1 // InterIntra mode support
 
 #define ENHANCE_ATB                       1
@@ -81,11 +108,14 @@ extern "C" {
                                             // Actions in the second pass: Frame and SB QP assignment and temporal filtering strenght change
 #define TWO_PASS_USE_2NDP_ME_IN_1STP      1 // Add a config parameter to the first pass to use the ME settings of the second pass
 
+#define REMOVE_MD_STAGE_1                 1 // Simplified MD Staging; removed md_stage_1
+#define NON_KF_INTRA_TF_FIX               0 // Fix temporal filtering for non-key Intra frames
+
+#define TWO_PASS_IMPROVEMENT              1 // Tune 2 pass for better Luma by adjusting the reference area and the actions
 //FOR DEBUGGING - Do not remove
 #define NO_ENCDEC                         0 // bypass encDec to test cmpliance of MD. complained achieved when skip_flag is OFF. Port sample code from VCI-SW_AV1_Candidate1 branch
 
 #define ADP_STATS_PER_LAYER                             0
-#define NSQ_TAB_SIZE                                    6
 #define AOM_INTERP_EXTEND                               4
 #define OPTIMISED_EX_SUBPEL                             1
 
@@ -156,6 +186,26 @@ enum {
 
 #define PAD_VALUE                                (128+32)
 
+/* Use open-loop data to predict the NSQ partitions. */
+#define PREDICT_NSQ_SHAPE                               1
+#if PREDICT_NSQ_SHAPE
+#define NUMBER_OF_DEPTH                                 6
+#define NUMBER_OF_SHAPES                                10
+#define ADD_SAD_FOR_128X128                             1
+#define ADJUST_NSQ_RANK_BASED_ON_NEIGH                  1
+#define COMBINE_MDC_NSQ_TABLE                           1
+#define ADD_SUPPORT_TO_SKIP_PART_N                      1
+#define ADD_MDC_REFINEMENT_LOOP                         1
+#define ADD_MDC_FULL_COST                               1
+#define NSQ_TAB_SIZE                                    8
+#define MAX_MDC_LEVEL                                   8
+#define MDC_ADAPTIVE_LEVEL                              1
+#else
+#define NSQ_TAB_SIZE                                    6
+#endif
+
+#define AUTO_MODE                                 -1
+
 //  Delta QP support
 #define ADD_DELTA_QP_SUPPORT                      1  // Add delta QP support
 #define BLOCK_MAX_COUNT_SB_128                    4421  // TODO: reduce alloction for 64x64
@@ -164,15 +214,15 @@ enum {
 #if II_COMP_FLAG
 #if OBMC_FLAG
 #if FILTER_INTRA_FLAG
-#define MAX_NFL                                 110 // Maximum number of candidates MD can support
+#define MAX_NFL                                 125 // Maximum number of candidates MD can support
 #else
-#define MAX_NFL                                 105 // Maximum number of candidates MD can support
+#define MAX_NFL                                 120 // Maximum number of candidates MD can support
 #endif
 #else
-#define MAX_NFL                                  80
+#define MAX_NFL                                  95
 #endif
 #else
-#define MAX_NFL                                   65
+#define MAX_NFL                                   80
 #endif
 #define MAX_NFL_BUFF                              (MAX_NFL + CAND_CLASS_TOTAL)  //need one extra temp buffer for each fast loop call
 #define MAX_LAD                                   120 // max lookahead-distance 2x60fps
@@ -508,6 +558,10 @@ typedef enum CAND_CLASS {
 #if FILTER_INTRA_FLAG
     CAND_CLASS_6,
 #endif
+#if PAL_CLASS
+    CAND_CLASS_7,
+#endif
+    CAND_CLASS_8,
     CAND_CLASS_TOTAL
 } CAND_CLASS;
 
@@ -518,12 +572,15 @@ typedef enum MD_STAGE {
     MD_STAGE_3,
     MD_STAGE_TOTAL
 } MD_STAGE;
-
+#if REMOVE_MD_STAGE_1
+#define MD_STAGING_MODE_0    0
+#define MD_STAGING_MODE_1    1
+#else
 #define MD_STAGING_MODE_0    0
 #define MD_STAGING_MODE_1    1
 #define MD_STAGING_MODE_2    2
 #define MD_STAGING_MODE_3    3
-
+#endif
 #define INTRA_NFL           16
 #define INTER_NEW_NFL       16
 #define INTER_PRED_NFL      16
@@ -591,6 +648,9 @@ typedef enum NsqSearchLevel
     NSQ_SEARCH_LEVEL4,
     NSQ_SEARCH_LEVEL5,
     NSQ_SEARCH_LEVEL6,
+#if PREDICT_NSQ_SHAPE
+    NSQ_SEARCH_LEVEL7,
+#endif
     NSQ_SEARCH_FULL
 } NsqSearchLevel;
 
@@ -1892,6 +1952,9 @@ typedef struct LoopFilterInfoN
 #define GM_TRANS_MIN -GM_TRANS_MAX
 #define GM_ALPHA_MIN -GM_ALPHA_MAX
 #define GM_ROW3HOMO_MIN -GM_ROW3HOMO_MAX
+
+#define USE_CUR_GM_REFMV 1
+
 /* clang-format off */
 typedef enum TransformationType
 {
@@ -2050,14 +2113,6 @@ typedef enum EbBitFieldMasks
 #define LAST_BWD_FRAME     8
 #define LAST_ALT_FRAME    16
 
-//----------------------
-// Used to hide GCC warnings for unused function tables
-#ifdef __GNUC__
-#define FUNC_TABLE __attribute__ ((unused))
-#else
-#define FUNC_TABLE
-#endif
-
 #define MAX_NUM_TOKENS          200
 
 #define LAD_DISABLE                       0
@@ -2133,7 +2188,17 @@ typedef enum EbBitDepthEnum
     EB_16BIT = 16,
     EB_32BIT = 32
 } EbBitDepthEnum;
+#if HBD_CLEAN_UP
+/** The MD_BIT_DEPTH_MODE type is used to describe the bitdepth of MD path.
+*/
 
+typedef enum MD_BIT_DEPTH_MODE
+{
+    EB_8_BIT_MD     = 0,    // 8bit mode decision
+    EB_10_BIT_MD    = 1,    // 10bit mode decision
+    EB_DUAL_BIT_MD  = 2     // Auto: 8bit & 10bit mode decision
+} MD_BIT_DEPTH_MODE;
+#endif
 /** The EB_GOP type is used to describe the hierarchical coding structure of
 Groups of Pictures (GOP) units.
 */
@@ -2292,6 +2357,21 @@ typedef enum EbAsm
     ASM_TYPE_INVALID = ~0
 } EbAsm;
 
+#if PAL_SUP
+#define  MAX_PAL_CAND   14
+typedef struct {
+    // Value of base colors for Y, U, and V
+    uint16_t palette_colors[3 * PALETTE_MAX_SIZE];
+    // Number of base colors for Y (0) and UV (1)
+    uint8_t palette_size[2];
+
+} PaletteModeInfo;
+
+typedef struct {
+    PaletteModeInfo pmi;
+    uint8_t  *color_idx_map;
+} PaletteInfo;
+#endif
 /** The EB_NULL type is used to define the C style NULL pointer.
 */
 #define EB_NULL ((void*) 0)
@@ -3286,6 +3366,11 @@ typedef struct stat_struct_t
 {
     uint32_t                        referenced_area[MAX_NUMBER_OF_TREEBLOCKS_PER_PICTURE];
 } stat_struct_t;
+#if TWO_PASS_IMPROVEMENT
+#define TWO_PASS_IR_THRSHLD 40  // Intra refresh threshold used to reduce the reference area.
+                                // If the periodic Intra refresh is less than the threshold,
+                                // the referenced area is normalized
+#endif
 #endif
 #define SC_MAX_LEVEL 2 // 2 sets of HME/ME settings are used depending on the scene content mode
 
@@ -3543,10 +3628,17 @@ static const uint16_t search_area_width[SC_MAX_LEVEL][INPUT_SIZE_COUNT][MAX_SUPP
         { 192,  192,  192,  192,   64,   64,   64,   64,   48,   16,   16,    16,   16 },
         { 192,  192,  192,  192,   64,   64,   64,   64,   48,   16,   16,    16,   16 },
     } , {
+#if M0_OPT
+        {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
+        {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
+        {640 ,  640,  640,  288,  288,  168,  128,  128,   64,   80,   80,    80,   80 },
+        {640 ,  640,  640,  288,  288,  168,  128,  128,   64,   80,   80,    80,   80 }
+#else
         {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
         {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
         {960 ,  640,  640,  288,  288,  168,  128,  128,   64,   80,   80,    80,   80 },
         {960 ,  640,  640,  288,  288,  168,  128,  128,   64,   80,   80,    80,   80 }
+#endif
     }
 };
 static const uint16_t search_area_height[SC_MAX_LEVEL][INPUT_SIZE_COUNT][MAX_SUPPORTED_MODES] = {
@@ -3556,10 +3648,17 @@ static const uint16_t search_area_height[SC_MAX_LEVEL][INPUT_SIZE_COUNT][MAX_SUP
         { 192,  192,  192,  192,   32,   32,   32,   32,   16,    9,    9,     9,    9 },
         { 192,  192,  192,  192,   32,   32,   32,   32,   16,    9,    9,     9,    9 }
     } , {
+#if M0_OPT
+        {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
+        {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
+        {640 ,  640,  640,  288,  288,  168,   80,   80,   48,   80,   80,    80,   80 },
+        {640 ,  640,  640,  288,  288,  168,   80,   80,   48,   80,   80,    80,   80 }
+#else
         {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
         {480 ,  480,  480,  144,  144,   88,   48,   48,   48,   48,   48,    48,   48 },
         {960 ,  640,  640,  288,  288,  168,   80,   80,   48,   80,   80,    80,   80 },
         {960 ,  640,  640,  288,  288,  168,   80,   80,   48,   80,   80,    80,   80 }
+#endif
     }
 
     //     M0    M1    M2    M3    M4    M5    M6    M7    M8    M9    M10    M11    M12

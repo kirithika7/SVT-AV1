@@ -70,6 +70,9 @@ extern "C" {
         EbBool                                 merge_flag;
         uint16_t                               count_non_zero_coeffs;
         uint8_t                                type;
+#if PAL_SUP
+        PaletteInfo                          palette_info;
+#endif
         // MD Rate Estimation Ptr
         MdRateEstimationContext             *md_rate_estimation_ptr; // 64 bits
         uint64_t                               fast_luma_rate;
@@ -78,7 +81,6 @@ extern "C" {
         uint64_t                               chroma_distortion_inter_depth;
         uint32_t                               luma_fast_distortion;
         uint32_t                               full_distortion;
-
         EbPtr                                 prediction_context_ptr;
         PictureControlSet                   *picture_control_set_ptr;
         EbPredDirection                        prediction_direction[MAX_NUM_OF_PU_PER_CU]; // 2 bits // Hsan: does not seem to be used why not removed ?
@@ -129,7 +131,8 @@ extern "C" {
         MotionMode                            motion_mode;
         uint16_t                               num_proj_ref;
         EbBool                                 local_warp_valid;
-        EbWarpedMotionParams                   wm_params;
+        EbWarpedMotionParams                   wm_params_l0;
+        EbWarpedMotionParams                   wm_params_l1;
         uint8_t                                tx_depth;
         InterInterCompoundData                 interinter_comp;
         uint8_t                                compound_idx;
@@ -150,8 +153,7 @@ extern "C" {
     typedef EbErrorType(*EbPredictionFunc)(
         struct ModeDecisionContext           *context_ptr,
         PictureControlSet                    *picture_control_set_ptr,
-        struct ModeDecisionCandidateBuffer   *candidate_buffer_ptr,
-        EbAsm                                   asm_type);
+        struct ModeDecisionCandidateBuffer   *candidate_buffer_ptr);
     typedef uint64_t(*EbFastCostFunc)(
         CodingUnit                           *cu_ptr,
         struct ModeDecisionCandidate         *candidate_buffer,

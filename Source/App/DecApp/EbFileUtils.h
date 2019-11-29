@@ -75,7 +75,8 @@ typedef struct ObuDecInputContext {
     uint8_t *buffer;
     size_t buffer_capacity;
     size_t bytes_buffered;
-    int is_annexb;
+    uint32_t is_annexb;
+    uint64_t rem_tu_size;
 }ObuDecInputContext;
 
 typedef struct DecInputContext {

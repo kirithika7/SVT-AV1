@@ -20,39 +20,12 @@
 
 #include "EbPictureOperators.h"
 #include "EbPackUnPack.h"
+#include "aom_dsp_rtcd.h"
 
 #define VARIANCE_PRECISION      16
 #define MEAN_PRECISION      (VARIANCE_PRECISION >> 1)
 
 void *eb_aom_memset16(void *dest, int32_t val, size_t length);
-
-/*********************************
- * x86 implememtation of Picture Addition
- *********************************/
-void picture_addition(
-    uint8_t  *pred_ptr,
-    uint32_t  pred_stride,
-    int16_t *residual_ptr,
-    uint32_t  residual_stride,
-    uint8_t  *recon_ptr,
-    uint32_t  recon_stride,
-    uint32_t  width,
-    uint32_t  height,
-    EbAsm  asm_type)
-{
-    addition_kernel_func_ptr_array[asm_type][width >> 3](
-        pred_ptr,
-        pred_stride,
-        residual_ptr,
-        residual_stride,
-        recon_ptr,
-        recon_stride,
-        width,
-        height
-        );
-
-    return;
-}
 
 /*********************************
  * Picture Copy
@@ -69,7 +42,6 @@ void pic_copy_kernel_8bit(
     for (uint32_t j = 0; j < area_height; j++)
         memcpy(dst + j * dst_stride, src + j * src_stride, area_width);
 }
-
 void pic_copy_kernel_16bit(
     uint16_t                  *src,
     uint32_t                   src_stride,
@@ -94,10 +66,8 @@ EbErrorType picture_copy(
     uint32_t                   chroma_area_width,
     uint32_t                   chroma_area_height,
     uint32_t                   component_mask,
-    EbBool                     hbd,
-    EbAsm                      asm_type)
+    EbBool                     hbd)
 {
-    UNUSED(asm_type);
     EbErrorType return_error = EB_ErrorNone;
 
     if (hbd) {
@@ -195,7 +165,7 @@ void residual_kernel16bit(
 * Residual Kernel
 Computes the residual data
 *******************************************/
-void residual_kernel_c(
+void residual_kernel8bit_c(
     uint8_t   *input,
     uint32_t   input_stride,
     uint8_t   *pred,
@@ -283,17 +253,15 @@ uint64_t ComputeNxMSatd8x8Units_U8(
     uint32_t  src_stride, //uint32_t  diffStride, // input parameter, source stride
     uint32_t  width,      // input parameter, block width (N)
     uint32_t  height,     // input parameter, block height (M)
-    EbAsm  asm_type,
     uint64_t *dc_value)
 {
     uint64_t satd = 0;
     uint32_t blockIndexInWidth;
     uint32_t blockIndexInHeight;
-    EbSatdU8Type Compute8x8SatdFunction = compute8x8_satd_u8_func_ptr_array[asm_type];
 
     for (blockIndexInHeight = 0; blockIndexInHeight < height >> 3; ++blockIndexInHeight) {
         for (blockIndexInWidth = 0; blockIndexInWidth < width >> 3; ++blockIndexInWidth)
-            satd += Compute8x8SatdFunction(&(src[(blockIndexInWidth << 3) + (blockIndexInHeight << 3) * src_stride]), dc_value, src_stride);
+            satd += compute8x8_satd_u8(&(src[(blockIndexInWidth << 3) + (blockIndexInHeight << 3) * src_stride]), dc_value, src_stride);
     }
 
     return satd;
@@ -324,9 +292,8 @@ uint64_t compute_nx_m_satd_sad_lcu(
     uint8_t  *src,        // input parameter, source samples Ptr
     uint32_t  src_stride,  // input parameter, source stride
     uint32_t  width,      // input parameter, block width (N)
-    uint32_t  height,     // input parameter, block height (M)
-    EbAsm  asm_type)
-{
+    uint32_t  height) {   // input parameter, block height (M)
+
     uint64_t satd = 0;
     uint64_t  dc_value = 0;
     uint64_t  acValue = 0;
@@ -337,7 +304,6 @@ uint64_t compute_nx_m_satd_sad_lcu(
             src_stride,
             width,
             height,
-            asm_type,
             &dc_value);
     }
     else {
@@ -360,7 +326,7 @@ uint64_t compute_nx_m_satd_sad_lcu(
 *  Used in the Full Mode Decision Loop for the only case of a MVP-SKIP candidate
 *******************************************/
 
-void full_distortion_kernel32_bits(
+void full_distortion_kernel32_bits_c(
     int32_t  *coeff,
     uint32_t   coeff_stride,
     int32_t  *recon_coeff,
@@ -391,7 +357,7 @@ void full_distortion_kernel32_bits(
     distortion_result[DIST_CALC_PREDICTION] = predictionDistortion;
 }
 
-uint64_t full_distortion_kernel16_bits(
+uint64_t full_distortion_kernel16_bits_c(
     uint8_t  *input,
     uint32_t  input_offset,
     uint32_t  input_stride,
@@ -427,7 +393,7 @@ uint64_t full_distortion_kernel16_bits(
 /*******************************************
 * Picture Distortion Full Kernel CbfZero
 *******************************************/
-void full_distortion_kernel_cbf_zero32_bits(
+void full_distortion_kernel_cbf_zero32_bits_c(
     int32_t  *coeff,
     uint32_t   coeff_stride,
     int32_t  *recon_coeff,
@@ -474,8 +440,7 @@ EbErrorType picture_full_distortion32_bits(
     uint32_t                   y_count_non_zero_coeffs,
     uint32_t                   cb_count_non_zero_coeffs,
     uint32_t                   cr_count_non_zero_coeffs,
-    COMPONENT_TYPE            component_type,
-    EbAsm                   asm_type)
+    COMPONENT_TYPE            component_type)
 {
     EbErrorType return_error = EB_ErrorNone;
 
@@ -489,7 +454,7 @@ EbErrorType picture_full_distortion32_bits(
         bheight = bheight < 64 ? bheight : 32;
 
         if (y_count_non_zero_coeffs) {
-            full_distortion_kernel32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel32_bits(
                 &(((int32_t*)coeff->buffer_y)[coeff_luma_origin_index]),
                 bwidth,
                 &(((int32_t*)recon_coeff->buffer_y)[recon_coeff_luma_origin_index]),
@@ -499,7 +464,7 @@ EbErrorType picture_full_distortion32_bits(
                 bheight);
         }
         else {
-            full_distortion_kernel_cbf_zero32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel_cbf_zero32_bits(
                 &(((int32_t*)coeff->buffer_y)[coeff_luma_origin_index]),
                 bwidth,
                 &(((int32_t*)recon_coeff->buffer_y)[recon_coeff_luma_origin_index]),
@@ -516,7 +481,7 @@ EbErrorType picture_full_distortion32_bits(
 
         // CB
         if (cb_count_non_zero_coeffs) {
-            full_distortion_kernel32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel32_bits(
                 &(((int32_t*)coeff->buffer_cb)[coeff_chroma_origin_index]),
                 bwidth_uv,
                 &(((int32_t*)recon_coeff->buffer_cb)[recon_coeff_chroma_origin_index]),
@@ -526,7 +491,7 @@ EbErrorType picture_full_distortion32_bits(
                 bheight_uv);
         }
         else {
-            full_distortion_kernel_cbf_zero32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel_cbf_zero32_bits(
                 &(((int32_t*)coeff->buffer_cb)[coeff_chroma_origin_index]),
                 bwidth_uv,
                 &(((int32_t*)recon_coeff->buffer_cb)[recon_coeff_chroma_origin_index]),
@@ -541,7 +506,7 @@ EbErrorType picture_full_distortion32_bits(
         cr_distortion[1] = 0;
         // CR
         if (cr_count_non_zero_coeffs) {
-            full_distortion_kernel32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel32_bits(
                 &(((int32_t*)coeff->buffer_cr)[coeff_chroma_origin_index]),
                 bwidth_uv,
                 &(((int32_t*)recon_coeff->buffer_cr)[recon_coeff_chroma_origin_index]),
@@ -551,7 +516,7 @@ EbErrorType picture_full_distortion32_bits(
                 bheight_uv);
         }
         else {
-            full_distortion_kernel_cbf_zero32_bits_func_ptr_array[asm_type](
+            full_distortion_kernel_cbf_zero32_bits(
                 &(((int32_t*)coeff->buffer_cr)[coeff_chroma_origin_index]),
                 bwidth_uv,
                 &(((int32_t*)recon_coeff->buffer_cr)[recon_coeff_chroma_origin_index]),
@@ -571,15 +536,26 @@ void extract_8bit_data(
     uint8_t       *out8_bit_buffer,
     uint32_t       out8_stride,
     uint32_t       width,
-    uint32_t       height,
-    EbAsm          asm_type){
-    unpack8_bit_func_ptr_array_16_bit[((width & 3) == 0) && ((height & 1) == 0)][asm_type](
-        in16_bit_buffer,
-        in_stride,
-        out8_bit_buffer,
-        out8_stride,
-        width,
-        height);
+    uint32_t       height) {
+
+    if (((width & 3) == 0) && ((height & 1) == 0)) {
+        un_pack8_bit_data(
+            in16_bit_buffer,
+            in_stride,
+            out8_bit_buffer,
+            out8_stride,
+            width,
+            height);
+    }
+    else {
+        un_pack8_bit_data_c(
+            in16_bit_buffer,
+            in_stride,
+            out8_bit_buffer,
+            out8_stride,
+            width,
+            height);
+    }
 }
 void unpack_l0l1_avg(
     uint16_t *ref16_l0,
@@ -589,10 +565,9 @@ void unpack_l0l1_avg(
     uint8_t  *dst_ptr,
     uint32_t  dst_stride,
     uint32_t  width,
-    uint32_t  height,
-    EbAsm  asm_type)
+    uint32_t  height)
 {
-    un_pack_avg_func_ptr_array[asm_type](
+    unpack_avg(
         ref16_l0,
         ref_l0_stride,
         ref16_l1,
@@ -609,14 +584,13 @@ void extract8_bitdata_safe_sub(
     uint32_t       out8_stride,
     uint32_t       width,
     uint32_t       height,
-    EbBool      sub_pred,
-    EbAsm       asm_type
+    EbBool      sub_pred
 )
 {
     /* sub_pred not implemented */
     (void)sub_pred;
 
-    unpack8_bit_safe_sub_func_ptr_array_16_bit[asm_type](
+    un_pack8_bit_data(
         in16_bit_buffer,
         in_stride,
         out8_bit_buffer,
@@ -634,12 +608,11 @@ void unpack_l0l1_avg_safe_sub(
     uint32_t  dst_stride,
     uint32_t  width,
     uint32_t  height,
-    EbBool      sub_pred,
-    EbAsm  asm_type)
+    EbBool      sub_pred)
 {
     //fix C
 
-    unpack_avg_safe_sub_func_ptr_array[asm_type](
+    unpack_avg_safe_sub(
         ref16_l0,
         ref_l0_stride,
         ref16_l1,
@@ -658,19 +631,30 @@ void un_pack2d(
     uint8_t       *outn_bit_buffer,
     uint32_t       outn_stride,
     uint32_t       width,
-    uint32_t       height,
-    EbAsm       asm_type
-)
+    uint32_t       height)
 {
-    un_pack2d_func_ptr_array_16_bit[((width & 3) == 0) && ((height & 1) == 0)][asm_type](
-        in16_bit_buffer,
-        in_stride,
-        out8_bit_buffer,
-        outn_bit_buffer,
-        out8_stride,
-        outn_stride,
-        width,
-        height);
+
+    if (((width & 3) == 0) && ((height & 1) == 0)) {
+        un_pack2d_16_bit_src_mul4(
+            in16_bit_buffer,
+            in_stride,
+            out8_bit_buffer,
+            outn_bit_buffer,
+            out8_stride,
+            outn_stride,
+            width,
+            height);
+    } else {
+        eb_enc_msb_un_pack2_d(
+            in16_bit_buffer,
+            in_stride,
+            out8_bit_buffer,
+            outn_bit_buffer,
+            out8_stride,
+            outn_stride,
+            width,
+            height);
+    }
 }
 
 void pack2d_src(
@@ -681,19 +665,32 @@ void pack2d_src(
     uint16_t    *out16_bit_buffer,
     uint32_t     out_stride,
     uint32_t     width,
-    uint32_t     height,
-    EbAsm     asm_type
-)
+    uint32_t     height)
 {
-    pack2d_func_ptr_array_16_bit_src[((width & 3) == 0) && ((height & 1) == 0)][asm_type](
-        in8_bit_buffer,
-        in8_stride,
-        inn_bit_buffer,
-        out16_bit_buffer,
-        inn_stride,
-        out_stride,
-        width,
-        height);
+
+    if (((width & 3) == 0) && ((height & 1) == 0)) {
+        pack2d_16_bit_src_mul4(
+            in8_bit_buffer,
+            in8_stride,
+            inn_bit_buffer,
+            out16_bit_buffer,
+            inn_stride,
+            out_stride,
+            width,
+            height);
+    }
+    else {
+        eb_enc_msb_pack2_d(
+            in8_bit_buffer,
+            in8_stride,
+            inn_bit_buffer,
+            out16_bit_buffer,
+            inn_stride,
+            out_stride,
+            width,
+            height);
+    }
+
 }
 
 void compressed_pack_lcu(
@@ -704,19 +701,30 @@ void compressed_pack_lcu(
     uint16_t    *out16_bit_buffer,
     uint32_t     out_stride,
     uint32_t     width,
-    uint32_t     height,
-    EbAsm     asm_type
+    uint32_t     height
 )
 {
-    compressed_pack_func_ptr_array[(width == 64 || width == 32) ? asm_type : ASM_NON_AVX2](
-        in8_bit_buffer,
-        in8_stride,
-        inn_bit_buffer,
-        out16_bit_buffer,
-        inn_stride,
-        out_stride,
-        width,
-        height);
+    if (width == 64 || width == 32) {
+        compressed_packmsb(
+            in8_bit_buffer,
+            in8_stride,
+            inn_bit_buffer,
+            out16_bit_buffer,
+            inn_stride,
+            out_stride,
+            width,
+            height);
+    } else {
+        compressed_packmsb_c(
+            in8_bit_buffer,
+            in8_stride,
+            inn_bit_buffer,
+            out16_bit_buffer,
+            inn_stride,
+            out_stride,
+            width,
+            height);
+     }
 }
 
 void conv2b_to_c_pack_lcu(
@@ -726,17 +734,28 @@ void conv2b_to_c_pack_lcu(
     uint32_t     out_stride,
     uint8_t    *local_cache,
     uint32_t     width,
-    uint32_t     height,
-    EbAsm     asm_type)
+    uint32_t     height)
 {
-    convert_unpack_c_pack_func_ptr_array[(width == 64 || width == 32) ? asm_type : ASM_NON_AVX2](
-        inn_bit_buffer,
-        inn_stride,
-        in_compn_bit_buffer,
-        out_stride,
-        local_cache,
-        width,
-        height);
+    if (width == 64 || width == 32) {
+        c_pack(
+            inn_bit_buffer,
+            inn_stride,
+            in_compn_bit_buffer,
+            out_stride,
+            local_cache,
+            width,
+            height);
+    }
+    else {
+        c_pack_c(
+            inn_bit_buffer,
+            inn_stride,
+            in_compn_bit_buffer,
+            out_stride,
+            local_cache,
+            width,
+            height);
+    }
 }
 
 /*******************************************
@@ -767,7 +786,7 @@ void memcpy32bit(
         out_ptr[i] = in_ptr[i];
 }
 
-int32_t  sum_residual(int16_t * in_ptr,
+int32_t  sum_residual_c(int16_t * in_ptr,
     uint32_t   size,
     uint32_t   stride_in)
 {
